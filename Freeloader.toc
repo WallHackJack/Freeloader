@@ -7,3 +7,4 @@
 
 Core.lua
 UI.lua
+Minimap.lua

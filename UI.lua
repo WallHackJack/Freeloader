@@ -95,13 +95,15 @@ function UI:Init()
         if FL:Tick() then UI:Refresh() end
     end)
 
-    tinsert(UISpecialFrames, "FreeloaderFrame")   -- Escape closes it
+    -- Deliberately NOT in UISpecialFrames: this is a monitor you leave running
+    -- while you play, and Escape is a key you hit constantly for other reasons.
+    -- The close button and /free are the ways out.
 
     self.frame = f
     self:Layout()
 end
 
--- Rows are built on demand and never destroyed: /frl rows is a display
+-- Rows are built on demand and never destroyed: /free rows is a display
 -- preference, not a reason to churn font strings.
 function UI:Layout()
     local f, n = self.frame, FL.db.rows
@@ -168,7 +170,7 @@ function UI:Refresh()
         f.state:SetText(("|cff909090%.0f%% of a 60 fps frame budget spent in addon Lua.|r")
             :format(total.msf / 16.67 * 100))
     else
-        f.state:SetText("|cffff6060CPU is off.|r |cff80c0ff/frl on|r |cff909090to enable script profiling.|r")
+        f.state:SetText("|cffff6060CPU is off.|r |cff80c0ff/free on|r |cff909090to enable script profiling.|r")
     end
 end
 

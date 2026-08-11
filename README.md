@@ -22,22 +22,33 @@ Freeloader shows both, sorted worst-first, updated once a second.
 ## Usage
 
 ```
-/frl              toggle the window
-/frl on           enable script profiling (needs a reload)
-/frl off          turn it back off
-/frl report [n]   cumulative worst offenders since login, printed to chat
-/frl reset        zero the counters, start a fresh window
-/frl rows <n>     how many lines to show (3-40)
-/frl rate <n>     seconds between samples (0.25-10)
-/frl lock         stop the window being dragged
+/free              toggle the window
+/free on           enable script profiling (needs a reload)
+/free off          turn it back off
+/free report [n]   cumulative worst offenders since login, printed to chat
+/free reset        zero the counters, start a fresh window
+/free rows <n>     how many lines to show (3-40)
+/free rate <n>     seconds between samples (0.25-10)
+/free lock         stop the window being dragged
+/free minimap      show or hide the minimap button
 ```
 
-`/freeloader` works as the full-length alias. Escape closes the window.
+`/freeload` and `/freeloader` are aliases. `/free` is short enough that another
+addon could have claimed it first — slash registration is last-writer-wins with
+no warning — so `/freeloader` is the one to fall back on if `/free` does
+something unexpected.
+
+The minimap button toggles the window on left-click and prints the session
+report on right-click. Drag it around the ring; `/free minimap` hides it.
+
+Escape deliberately does **not** close the window. This is a monitor you leave
+running while you play, and Escape is a key you hit for a hundred other reasons.
+Use the close button or `/free`.
 
 ## Script profiling
 
 CPU numbers only exist when the `scriptProfile` CVar is on, and that CVar only
-changes on a UI reload — `/frl on` sets it and offers the reload. Memory and
+changes on a UI reload — `/free on` sets it and offers the reload. Memory and
 allocation rate work without it.
 
 Profiling adds a few percent CPU of its own, so the honest workflow is: turn it
@@ -54,7 +65,7 @@ inflated while it runs; the *ranking* is what you should trust.
 - **Negative memory deltas are floored at zero.** A drop means the collector
   ran, not that an addon gave memory back.
 - **Nothing is sampled while the window is closed.** Hidden frames get no
-  `OnUpdate`. `/frl report` still works — it reads cumulative counters.
+  `OnUpdate`. `/free report` still works — it reads cumulative counters.
 
 ## License
 

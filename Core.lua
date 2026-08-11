@@ -37,11 +37,13 @@ local MIN_RATE, MAX_RATE = 0.25, 10
 local MIN_ROWS, MAX_ROWS = 3, 40
 
 local defaults = {
-    rate   = 1,      -- seconds between samples
-    rows   = 12,
-    locked = false,
-    shown  = false,
-    point  = { "CENTER", "CENTER", 0, 0 },
+    rate    = 1,      -- seconds between samples
+    rows    = 12,
+    locked  = false,
+    shown   = false,
+    point   = { "CENTER", "CENTER", 0, 0 },
+    minimap = true,
+    minimapAngle = 200,
 }
 
 -- Index -> last reading. The addon list cannot change mid-session, so the
@@ -180,7 +182,7 @@ function FL:Report(limit)
     self:Print("Since %s -- %s, %d addons loaded, %.1f%% of one core total.",
         self.sinceLabel, FormatDuration(elapsed), GetNumAddOns(), sumCPU / (elapsed * 10))
     if not self.profilingActive then
-        self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r Run |cff80c0ff/frl on|r.")
+        self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r Run |cff80c0ff/free on|r.")
     end
 
     limit = math.min(limit or 10, #list)
@@ -191,7 +193,7 @@ function FL:Report(limit)
             i, e.name, e.cpu, e.cpu / (elapsed * 10), mem)
     end
     if #list > limit then
-        self:Print("  |cff909090... and %d more. /frl report %d for a longer list.|r", #list - limit, #list)
+        self:Print("  |cff909090... and %d more. /free report %d for a longer list.|r", #list - limit, #list)
     end
 end
 
@@ -232,20 +234,23 @@ local function SetProfiling(on)
 end
 
 local function Help()
-    FL:Print("|cff80c0ff/frl|r toggles the window. Also:")
+    FL:Print("|cff80c0ff/free|r toggles the window |cff909090(/freeload and /freeloader work too)|r. Also:")
     FL:Print("  |cff80c0ffon|r / |cffdd80ffoff|r -- script profiling, the CVar that makes CPU numbers exist (needs a reload)")
     FL:Print("  |cff80c0ffreport|r |cff909090[n]|r -- cumulative worst offenders since login, printed here")
     FL:Print("  |cff80c0ffreset|r -- zero the counters and start a fresh window")
     FL:Print("  |cff80c0ffrows|r |cff909090n|r -- how many lines the window shows (%d-%d)", MIN_ROWS, MAX_ROWS)
     FL:Print("  |cff80c0ffrate|r |cff909090n|r -- seconds between samples (%.2f-%d)", MIN_RATE, MAX_RATE)
     FL:Print("  |cff80c0fflock|r -- stop the window being dragged")
+    FL:Print("  |cff80c0ffminimap|r -- show or hide the minimap button")
 end
 
+-- Three tokens, longest first as the guaranteed one. Slash registration is
+-- last-writer-wins with no warning, so a short token like /free can silently
+-- belong to another addon; /freeloader is the one nobody else will claim, and
+-- it is what every message here tells you to type when something is wrong.
 SLASH_FREELOADER1 = "/freeloader"
--- Not /fl: it is short enough that UI packages and older utility addons claim
--- it, slash registration is last-writer-wins with no warning, and an addon
--- whose command silently belongs to someone else looks broken.
-SLASH_FREELOADER2 = "/frl"
+SLASH_FREELOADER2 = "/freeload"
+SLASH_FREELOADER3 = "/free"
 SlashCmdList.FREELOADER = function(input)
     local cmd, arg = input:lower():match("^%s*(%S*)%s*(.-)%s*$")
 
@@ -260,19 +265,23 @@ SlashCmdList.FREELOADER = function(input)
         FL:Print("Counters cleared.")
     elseif cmd == "rows" then
         local n = tonumber(arg)
-        if not n then return FL:Print("Usage: /frl rows <%d-%d>", MIN_ROWS, MAX_ROWS) end
+        if not n then return FL:Print("Usage: /free rows <%d-%d>", MIN_ROWS, MAX_ROWS) end
         FL.db.rows = math.min(math.max(math.floor(n), MIN_ROWS), MAX_ROWS)
         FL.UI:Layout()
         FL:Print("Showing %d rows.", FL.db.rows)
     elseif cmd == "rate" then
         local n = tonumber(arg)
-        if not n then return FL:Print("Usage: /frl rate <%.2f-%d>", MIN_RATE, MAX_RATE) end
+        if not n then return FL:Print("Usage: /free rate <%.2f-%d>", MIN_RATE, MAX_RATE) end
         FL.db.rate = math.min(math.max(n, MIN_RATE), MAX_RATE)
         FL:Rebase()
         FL:Print("Sampling every %.2fs.", FL.db.rate)
     elseif cmd == "lock" then
         FL.db.locked = not FL.db.locked
         FL:Print("Window %s.", FL.db.locked and "locked" or "unlocked")
+    elseif cmd == "minimap" then
+        FL.db.minimap = not FL.db.minimap
+        FL.MinimapButton:Update()
+        FL:Print("Minimap button %s.", FL.db.minimap and "shown" or "hidden")
     else
         Help()
     end
@@ -298,5 +307,6 @@ loader:SetScript("OnEvent", function(self, _, name)
     FL.since, FL.sinceLabel = GetTime(), "login"
 
     FL.UI:Init()
+    FL.MinimapButton:Init()
     if FL.db.shown then FL.UI:Show() end
 end)
