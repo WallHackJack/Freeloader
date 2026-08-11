@@ -1,0 +1,9 @@
+## Interface: 20505, 11509
+## Title: Freeloader
+## Notes: Which addon isn't paying its way. Live CPU and memory per addon.
+## Author: Wallhackjack
+## Version: 0.1.0
+## SavedVariables: FreeloaderDB
+
+Core.lua
+UI.lua
