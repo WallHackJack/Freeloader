@@ -179,8 +179,6 @@ function UI:Init()
 
     f.title = Text(f, "GameFontNormal", PAD + COL_NAME, -PAD, 200, "LEFT")
     f.title:SetText("Freeloader")
-    -- Stops short of the close button rather than running under it.
-    f.rate = Text(f, "GameFontDisableSmall", PAD + COL_MSF, -PAD + 2, 92, "RIGHT")
 
     local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
     close:SetPoint("TOPRIGHT", f, "TOPRIGHT", 1, 1)
@@ -189,6 +187,10 @@ function UI:Init()
     self.lines = {}
     f.summary = Text(f, "GameFontHighlightSmall", PAD, 0, CONTENT_W, "LEFT")
     f.state   = Text(f, "GameFontHighlightSmall", PAD, 0, CONTENT_W, "LEFT")
+    -- Full content width down in the footer: the wording does not fit in the
+    -- title corner where the bare interval used to sit, and a hint nobody can
+    -- read is not a hint.
+    f.rate    = Text(f, "GameFontDisableSmall", PAD, 0, CONTENT_W, "LEFT")
 
     f:SetScript("OnShow", function()
         FL.db.shown = true
@@ -275,7 +277,9 @@ function UI:Layout()
     f.summary:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, footer)
     f.state:ClearAllPoints()
     f.state:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, footer - 12)
-    f:SetHeight(-footer + 12 + 12 + PAD)
+    f.rate:ClearAllPoints()
+    f.rate:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, footer - 24)
+    f:SetHeight(-footer + 12 + 12 + 12 + PAD)
 
     self:Refresh()
 end
@@ -307,7 +311,8 @@ function UI:Refresh()
         self.lines[1].name:SetText(("|cff808080sampling, %.2gs window...|r"):format(db.rate))
     end
 
-    f.rate:SetText(("every %.2gs"):format(db.rate))
+    f.rate:SetText(("|cff909090Refreshes every %.2gs, use |r|cff80c0ff/free rate|r|cff909090 to edit|r")
+        :format(db.rate))
     f.summary:SetText(("|cff909090all addons|r  %.1f%%   %.2f ms/f   %.0f KB/s   |cff909090at|r %d fps")
         :format(total.cpu, total.msf, total.churn, math.floor(total.fps + 0.5)))
 
