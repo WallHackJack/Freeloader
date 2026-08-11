@@ -83,7 +83,7 @@ end
 local COLUMN_HELP = {
     [COL_NAME] = { "Addon", {
         "Every addon the client has loaded, worst first, including Freeloader itself.",
-        "Rows that are costing nothing measurable are left out rather than padded in as zeroes.",
+        "An addon only gets a row if at least one of its three columns has a non-zero number to show. The totals below still count everything, including the addons too quiet to list.",
     } },
     [COL_CPU] = { "CPU", {
         "Share of one CPU core spent running this addon's Lua, averaged over the sample window.",

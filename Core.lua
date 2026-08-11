@@ -31,7 +31,13 @@ local ResetCPUUsage          = C_AddOns and C_AddOns.ResetCPUUsage          or R
 local GetCVar                = C_CVar   and C_CVar.GetCVar                  or GetCVar
 local SetCVar                = C_CVar   and C_CVar.SetCVar                  or SetCVar
 
-local CPU_FLOOR   = 0.005  -- % of one core; under this it is timer noise, not cost
+-- Floors are set by what the columns can actually PRINT, so a row survives
+-- only if at least one of its three numbers renders as something other than
+-- zero. Anything below all three would occupy a line to say "0.0  0.00  0",
+-- which is a row of noise dressed as data. Keep these in step with the format
+-- strings in UI.lua: %.1f%%, %.2f, %.0f.
+local CPU_FLOOR   = 0.05   -- % of one core
+local MSF_FLOOR   = 0.005  -- ms per frame
 local CHURN_FLOOR = 0.5    -- KB/s
 local MIN_RATE, MAX_RATE = 0.25, 10
 local MIN_ROWS, MAX_ROWS = 3, 40
@@ -130,7 +136,7 @@ function FL:Sample()
 
         total.cpu, total.churn, total.msf = total.cpu + pct, total.churn + churn, total.msf + msf
 
-        if pct >= CPU_FLOOR or churn >= CHURN_FLOOR then
+        if pct >= CPU_FLOOR or msf >= MSF_FLOOR or churn >= CHURN_FLOOR then
             local r = pool[i]
             if not r then r = {}; pool[i] = r end
             r.name  = r.name or (GetAddOnInfo(i)) or ("addon " .. i)
