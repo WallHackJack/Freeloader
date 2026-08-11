@@ -17,7 +17,23 @@ into a framerate drop is:
 - **KB/s allocated.** Allocation *rate* is what feeds the garbage collector, and
   the collector is what stutters. Total memory held says nothing about it.
 
-Freeloader shows both, sorted worst-first, updated once a second.
+Freeloader shows both, sorted worst-first, on a 3 second window.
+
+## Reading the columns
+
+Hover any column header in-game for the same explanation; hover a row for the
+full detail on that addon.
+
+| Column | What it is |
+| --- | --- |
+| **CPU** | Share of one CPU core spent running that addon's Lua, averaged over the sample window. Good for ranking; says nothing about whether the cost is one ugly spike or spread evenly. |
+| **ms/f** | Milliseconds of Lua per rendered frame. At 60 fps the entire frame is 16.7 ms, shared with the game world and everything else. An addon at 2.00 is taking 12% of that away from drawing. This is the column that becomes a framerate drop. |
+| **KB/s** | Kilobytes of Lua memory *allocated* per second — new tables, strings, closures. **Not** memory held: an addon can sit on 20 MB at 0 KB/s and cost you nothing. Allocation is what feeds the garbage collector, and a collection pass is a frame that doesn't get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it. |
+
+The sample window is 3 seconds by default rather than 1. A one-second window is
+both hard to read and noisy — a single GC pass or stray event lands entirely
+inside it and throws that row to the top. `/free rate <n>` if you want it
+faster or slower.
 
 ## Usage
 
@@ -28,7 +44,7 @@ Freeloader shows both, sorted worst-first, updated once a second.
 /free report [n]   cumulative worst offenders since login, printed to chat
 /free reset        zero the counters, start a fresh window
 /free rows <n>     how many lines to show (3-40)
-/free rate <n>     seconds between samples (0.25-10)
+/free rate <n>     seconds between samples (0.25-10, default 3)
 /free lock         stop the window being dragged
 /free minimap      show or hide the minimap button
 ```

@@ -37,7 +37,10 @@ local MIN_RATE, MAX_RATE = 0.25, 10
 local MIN_ROWS, MAX_ROWS = 3, 40
 
 local defaults = {
-    rate    = 1,      -- seconds between samples
+    -- 3s rather than 1s: a one-second window is both hard to read and noisy,
+    -- since a single GC pass or a stray event lands entirely inside it and
+    -- throws the row to the top. Longer windows average that out.
+    rate    = 3,      -- seconds between samples
     rows    = 12,
     locked  = false,
     shown   = false,
@@ -132,6 +135,10 @@ function FL:Sample()
             if not r then r = {}; pool[i] = r end
             r.name  = r.name or (GetAddOnInfo(i)) or ("addon " .. i)
             r.pct, r.msf, r.churn = pct, msf, churn
+            -- Carried for the row tooltip: the cumulative counters are already
+            -- in hand here, and re-reading them on hover would show a figure
+            -- from a different instant than the row next to it.
+            r.index, r.cpu, r.mem = i, cpu, mem
             rows[#rows + 1] = r
         end
     end
