@@ -150,34 +150,67 @@ local function HideTooltip()
     GameTooltip:Hide()
 end
 
+local BLUE = "|cff80c0ff"
+local ON, OFF = "|cff40ff40ON|r", "|cffff6060OFF|r"
+
+-- A column whose numbers depend on a switch says so on its first line, before
+-- it explains anything: whether the switch is on is the thing you came to the
+-- tooltip to find out, and it is not worth reading the rest if it is off.
 local COLUMN_HELP = {
-    [COL_NAME] = { "Addon", {
-        "Every addon the client has loaded, worst first, including Freeloader itself.",
-        "An addon only gets a row if at least one of its three columns has a non-zero number to show. The totals row still counts everything, including the addons too quiet to list.",
-    } },
-    [COL_CPU] = { "CPU", {
-        "Share of one CPU core spent running this addon's Lua, averaged over the sample window.",
-        "Useful for ranking, but it does not tell you whether the cost lands in one ugly spike or spread evenly. That is what ms/f is for.",
-    } },
-    [COL_MSF] = { "ms/f -- milliseconds per frame", {
-        "How long this addon's Lua runs during an average frame.",
-        "At 60 fps the whole frame is 16.7 ms, and everything else -- the game world, your other addons, the client itself -- shares it. An addon at 2.00 here is taking 12% of that budget away from drawing.",
-        "This is the column that turns into a framerate drop.",
-    } },
-    [COL_KBS] = { "KB/s -- allocation rate", {
-        "Kilobytes of Lua memory this addon allocates per second: new tables, strings and closures.",
-        "This is not memory it is holding. An addon can sit on 20 MB at 0 KB/s and cost you nothing.",
-        "Allocation is what feeds the garbage collector, and a collection pass is a frame that does not get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it.",
-        "Off by default, and shown as a dash when off. The scan behind this figure hitches hard enough to be worse than most of what it would tell you about, and because it is a C call the client bills it to nobody -- not even to Freeloader. Turn it on with /free memory when you are actually hunting a stutter.",
-    } },
+    [COL_NAME] = {
+        title = "Addon",
+        body = {
+            "Every addon the client has loaded, worst first, including Freeloader itself.",
+            "An addon only gets a row if at least one of its three columns has a non-zero number to show. The totals row still counts everything, including the addons too quiet to list.",
+        },
+    },
+    [COL_CPU] = {
+        title = "CPU",
+        status = function()
+            return ("Script profiling is %s.  %s/free on|r and %s/free off|r, both need a reload.")
+                :format(FL.profilingActive and ON or OFF, BLUE, BLUE)
+        end,
+        body = {
+            "Share of one CPU core spent running this addon's Lua, averaged over the sample window.",
+            "Useful for ranking, but it does not tell you whether the cost lands in one ugly spike or spread evenly. That is what ms/f is for.",
+        },
+    },
+    [COL_MSF] = {
+        title = "ms/f -- milliseconds per frame",
+        body = {
+            "How long this addon's Lua runs during an average frame.",
+            "At 60 fps the whole frame is 16.7 ms, and everything else -- the game world, your other addons, the client itself -- shares it. An addon at 2.00 here is taking 12% of that budget away from drawing.",
+            "This is the column that turns into a framerate drop.",
+        },
+    },
+    [COL_KBS] = {
+        title = "KB/s -- allocation rate",
+        status = function()
+            return ("Allocation tracking is %s.  %s/free memory|r toggles it.")
+                :format(FL.db.memory and ON or OFF, BLUE)
+        end,
+        body = {
+            "Kilobytes of Lua memory this addon allocates per second: new tables, strings and closures.",
+            "This is not memory it is holding. An addon can sit on 20 MB at 0 KB/s and cost you nothing.",
+            "Allocation is what feeds the garbage collector, and a collection pass is a frame that does not get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it.",
+            "Off by default, and shown as a dash rather than a zero when off. The scan behind it hitches, and because it is a C call the client bills that hitch to nobody -- not even to Freeloader.",
+        },
+    },
 }
 
 local function OnHeaderEnter(hit)
     local help = COLUMN_HELP[hit.column]
-    OpenTooltip(help[1])
-    for _, line in ipairs(help[2]) do
-        GameTooltip:AddLine(line, 0.85, 0.85, 0.85, true)
+    OpenTooltip(help.title)
+
+    if help.status then
+        GameTooltip:AddLine(help.status(), 1, 1, 1, true)
     end
+    for i, paragraph in ipairs(help.body) do
+        -- Paragraphs, not a wall: a blank line before each one but the first.
+        if i > 1 or help.status then GameTooltip:AddLine(" ") end
+        GameTooltip:AddLine(paragraph, 0.85, 0.85, 0.85, true)
+    end
+
     GameTooltip:Show()
 end
 
@@ -206,7 +239,7 @@ local function OnTotalEnter(row)
     if FL.db.memory then
         GameTooltip:AddDoubleLine("Allocating", ("%s/s"):format(FormatKB(t.churn)), 1, 1, 1, 1, 1, 1)
     else
-        GameTooltip:AddDoubleLine("Allocating", "not tracked", 1, 1, 1, 0.5, 0.5, 0.5)
+        GameTooltip:AddDoubleLine("Allocating", "not tracked", 1, 1, 1, 1, 0.38, 0.38)
     end
 
     GameTooltip:AddLine(" ")
