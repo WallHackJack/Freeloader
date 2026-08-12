@@ -7,9 +7,6 @@ FL.UI = UI
 -- fixed-width font, which is the only way to get digits to line up when the
 -- client ships no monospace face.
 
-local GetAddOnInfo  = C_AddOns and C_AddOns.GetAddOnInfo  or GetAddOnInfo
-local IsAddOnLoaded = C_AddOns and C_AddOns.IsAddOnLoaded or IsAddOnLoaded
-
 local PAD, ROW_H = 10, 13
 local COL_NAME, COL_CPU, COL_MSF, COL_KBS = 0, 150, 206, 262
 local W_NAME, W_CPU, W_MSF, W_KBS = 148, 52, 52, 58
@@ -114,6 +111,7 @@ local COLUMN_HELP = {
         "Kilobytes of Lua memory this addon allocates per second: new tables, strings and closures.",
         "This is not memory it is holding. An addon can sit on 20 MB at 0 KB/s and cost you nothing.",
         "Allocation is what feeds the garbage collector, and a collection pass is a frame that does not get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it.",
+        "Sampled less often than the CPU columns: the scan behind this figure is expensive enough to cause a hitch of its own, and that is not a cost a profiler gets to add.",
     } },
 }
 
@@ -126,41 +124,14 @@ local function OnHeaderEnter(hit)
     GameTooltip:Show()
 end
 
-local function OnRowLeave(row)
+local function OnHoverLeave(row)
     row.highlight:Hide()
     HideTooltip()
 end
 
-local function OnRowEnter(row)
-    local r = row.data
-    if not r then return end
-    row.highlight:Show()
-
-    local _, title = GetAddOnInfo(r.index)
-    OpenTooltip(r.name)
-    if title and title ~= r.name then
-        GameTooltip:AddLine(title, 0.7, 0.7, 0.7, true)
-    end
-    if not IsAddOnLoaded(r.index) then
-        GameTooltip:AddLine("Not loaded.", 1, 0.4, 0.4)
-    end
-
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(("Over the last %.2gs"):format(FL.total.window), 1, 0.82, 0)
-    GameTooltip:AddDoubleLine("CPU", ("%.2f%% of a core"):format(r.pct), 1, 1, 1, ColorFor(r.pct))
-    GameTooltip:AddDoubleLine("Per frame", ("%.2f ms"):format(r.msf), 1, 1, 1, ColorFor(r.pct))
-    GameTooltip:AddDoubleLine("Frame budget",
-        ("%.1f%% at 60 fps"):format(r.msf / FRAME_MS * 100), 1, 1, 1, ColorFor(r.pct))
-    GameTooltip:AddDoubleLine("Allocating", ("%s/s"):format(FormatKB(r.churn)), 1, 1, 1, 1, 1, 1)
-
-    GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(("Since %s"):format(FL.sinceLabel), 1, 0.82, 0)
-    GameTooltip:AddDoubleLine("CPU total", ("%.0f ms"):format(r.cpu), 1, 1, 1, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Memory held", FormatKB(r.mem), 1, 1, 1, 0.7, 0.7, 0.7)
-
-    GameTooltip:Show()
-end
-
+-- The addon rows deliberately take no mouse input. Their tooltips repeated
+-- what the columns already showed, and every mouse-enabled frame is a region
+-- the client hit-tests as the cursor moves across the window.
 local function OnTotalEnter(row)
     local t = FL.total
     row.highlight:Show()
@@ -187,21 +158,27 @@ end
 -- Construction
 ----------------------------------------------------------------------
 
+-- onEnter is what makes a row interactive. Without it the row takes no mouse
+-- input at all, which also means drags over it fall straight through to the
+-- window and nothing has to forward them.
 function UI:CreateRow(y, onEnter)
     local f = self.frame
     local row = CreateFrame("Frame", nil, f)
     row:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
     row:SetSize(CONTENT_W, ROW_H)
-    row:EnableMouse(true)
-    row:SetScript("OnEnter", onEnter)
-    row:SetScript("OnLeave", OnRowLeave)
-    MakeDraggable(row)
 
-    local hl = row:CreateTexture(nil, "BACKGROUND")
-    hl:SetAllPoints()
-    SetSolid(hl, 1, 1, 1, 0.09)
-    hl:Hide()
-    row.highlight = hl
+    if onEnter then
+        row:EnableMouse(true)
+        row:SetScript("OnEnter", onEnter)
+        row:SetScript("OnLeave", OnHoverLeave)
+        MakeDraggable(row)
+
+        local hl = row:CreateTexture(nil, "BACKGROUND")
+        hl:SetAllPoints()
+        SetSolid(hl, 1, 1, 1, 0.09)
+        hl:Hide()
+        row.highlight = hl
+    end
 
     row.name = Text(row, "GameFontHighlightSmall", COL_NAME, 0, W_NAME, "LEFT")
     row.cpu  = Text(row, "GameFontHighlightSmall", COL_CPU,  0, W_CPU,  "RIGHT")
@@ -317,7 +294,7 @@ function UI:Layout()
 
     for i = 1, n do
         if not self.lines[i] then
-            self.lines[i] = self:CreateRow(ROWS_TOP - (i - 1) * ROW_H, OnRowEnter)
+            self.lines[i] = self:CreateRow(ROWS_TOP - (i - 1) * ROW_H)
         end
         self.lines[i]:Show()
     end
@@ -346,7 +323,6 @@ function UI:Refresh()
 
     for i = 1, db.rows do
         local row, r = self.lines[i], rows[i]
-        row.data = r
         if r then
             row.name:SetText(r.name)
             row.name:SetTextColor(ColorFor(r.pct))

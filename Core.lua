@@ -55,14 +55,25 @@ local defaults = {
     minimapAngle = 200,
 }
 
+-- UpdateAddOnMemoryUsage walks every addon's memory attribution and is by a
+-- wide margin the most expensive call in this file -- enough on its own to
+-- show as a hitch, which is not a cost a profiler gets to add. So memory runs
+-- on its own slower cadence and the CPU columns keep the fast one.
+local MEM_EVERY = 3   -- memory is sampled on every Nth tick
+
 -- Index -> last reading. The addon list cannot change mid-session, so the
 -- index is a stable key and no name lookup is needed to pair up samples.
 local prevCPU, prevMem = {}, {}
+-- Index -> KB/s, carried between memory samples so the column holds its last
+-- real reading instead of blinking to zero on the ticks that skip the scan.
+local churnRate = {}
 -- Index -> reusable row table. A profiler that allocates a fresh table per
 -- addon per second would show up in its own KB/s column, which is funny once.
 local pool = {}
 
+local addonCount = 0
 local frames, lastSample, baselined = 0, 0, false
+local lastMem, ticksSinceMem, totalChurn = 0, 0, 0
 
 FL.rows  = {}
 FL.total = { cpu = 0, msf = 0, churn = 0, fps = 0, window = 0 }
@@ -98,56 +109,77 @@ end
 
 function FL:Sample()
     local now = GetTime()
-    local window = now - lastSample
-    local n = GetNumAddOns()
-
-    UpdateAddOnCPUUsage()
-    UpdateAddOnMemoryUsage()
+    -- With profiling off every CPU getter returns zero, so the whole CPU half
+    -- of this function is a walk over the addon list to collect nothing.
+    local profiling = self.profilingActive
 
     if not baselined then
-        for i = 1, n do
-            prevCPU[i], prevMem[i] = GetAddOnCPUUsage(i), GetAddOnMemoryUsage(i)
+        if profiling then UpdateAddOnCPUUsage() end
+        UpdateAddOnMemoryUsage()
+        for i = 1, addonCount do
+            prevCPU[i] = profiling and GetAddOnCPUUsage(i) or 0
+            prevMem[i] = GetAddOnMemoryUsage(i)
         end
-        baselined, lastSample, frames = true, now, 0
+        wipe(churnRate)
+        totalChurn, ticksSinceMem = 0, 0
+        baselined, lastSample, lastMem, frames = true, now, now, 0
         return false
     end
 
+    local window = now - lastSample
+    ticksSinceMem = ticksSinceMem + 1
+    local doMem = ticksSinceMem >= MEM_EVERY
+    local memWindow = now - lastMem
+
+    if profiling then UpdateAddOnCPUUsage() end
+    if doMem then UpdateAddOnMemoryUsage() end
+
     local rows, total = self.rows, self.total
     wipe(rows)
-    total.cpu, total.msf, total.churn = 0, 0, 0
+    total.cpu, total.msf = 0, 0
     total.window, total.frames = window, frames
     total.fps = frames / window
 
-    for i = 1, n do
-        local cpu, mem = GetAddOnCPUUsage(i), GetAddOnMemoryUsage(i)
-        local dcpu = cpu - (prevCPU[i] or cpu)
-        local dmem = mem - (prevMem[i] or mem)
-        prevCPU[i], prevMem[i] = cpu, mem
+    local sumChurn = 0
+    for i = 1, addonCount do
+        local pct, msf = 0, 0
+        if profiling then
+            local cpu = GetAddOnCPUUsage(i)
+            local dcpu = cpu - (prevCPU[i] or cpu)
+            prevCPU[i] = cpu
+            -- ms over the window as a share of one core:
+            -- dcpu / (window * 1000) * 100.
+            pct = dcpu / (window * 10)
+            msf = frames > 0 and dcpu / frames or 0
+            total.cpu, total.msf = total.cpu + pct, total.msf + msf
+        end
 
-        -- A negative memory delta means the collector ran, not that the addon
-        -- handed memory back. Those allocations did happen, we just cannot see
-        -- them any more -- floor at zero rather than report a negative rate.
-        if dmem < 0 then dmem = 0 end
+        if doMem then
+            local mem = GetAddOnMemoryUsage(i)
+            local dmem = mem - (prevMem[i] or mem)
+            prevMem[i] = mem
+            -- A negative delta means the collector ran, not that the addon
+            -- handed memory back. Those allocations did happen, we just cannot
+            -- see them any more -- floor at zero rather than report a negative.
+            if dmem < 0 then dmem = 0 end
+            churnRate[i] = dmem / memWindow
+            sumChurn = sumChurn + churnRate[i]
+        end
 
-        -- ms over the window, as a share of one core: dcpu / (window * 1000) * 100.
-        local pct   = dcpu / (window * 10)
-        local churn = dmem / window
-        local msf   = frames > 0 and dcpu / frames or 0
-
-        total.cpu, total.churn, total.msf = total.cpu + pct, total.churn + churn, total.msf + msf
-
-        if pct >= CPU_FLOOR or msf >= MSF_FLOOR or churn >= CHURN_FLOOR then
+        local kbs = churnRate[i] or 0
+        if pct >= CPU_FLOOR or msf >= MSF_FLOOR or kbs >= CHURN_FLOOR then
             local r = pool[i]
             if not r then r = {}; pool[i] = r end
-            r.name  = r.name or (GetAddOnInfo(i)) or ("addon " .. i)
-            r.pct, r.msf, r.churn = pct, msf, churn
-            -- Carried for the row tooltip: the cumulative counters are already
-            -- in hand here, and re-reading them on hover would show a figure
-            -- from a different instant than the row next to it.
-            r.index, r.cpu, r.mem = i, cpu, mem
+            r.name = r.name or (GetAddOnInfo(i)) or ("addon " .. i)
+            r.pct, r.msf, r.churn = pct, msf, kbs
             rows[#rows + 1] = r
         end
     end
+
+    if doMem then
+        totalChurn, lastMem, ticksSinceMem = sumChurn, now, 0
+    end
+    total.churn = totalChurn
 
     table.sort(rows, SortRows)
     lastSample, frames = now, 0
@@ -180,7 +212,7 @@ function FL:Report(limit)
 
     local elapsed = math.max(GetTime() - self.since, 0.001)
     local list, sumCPU = {}, 0
-    for i = 1, GetNumAddOns() do
+    for i = 1, addonCount do
         local cpu, mem = GetAddOnCPUUsage(i), GetAddOnMemoryUsage(i)
         sumCPU = sumCPU + cpu
         if cpu > 0 or mem > 16 then
@@ -193,7 +225,7 @@ function FL:Report(limit)
     end)
 
     self:Print("Since %s -- %s, %d addons loaded, %.1f%% of one core total.",
-        self.sinceLabel, FormatDuration(elapsed), GetNumAddOns(), sumCPU / (elapsed * 10))
+        self.sinceLabel, FormatDuration(elapsed), addonCount, sumCPU / (elapsed * 10))
     if not self.profilingActive then
         self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r Run |cff80c0ff/free on|r.")
     end
@@ -318,6 +350,9 @@ loader:SetScript("OnEvent", function(self, _, name)
     end
     FL.db = FreeloaderDB
     FL.since, FL.sinceLabel = GetTime(), "login"
+    -- The addon list is fixed for the session, so this is read once instead of
+    -- on every tick of the sample loop.
+    addonCount = GetNumAddOns()
 
     FL.UI:Init()
     FL.MinimapButton:Init()

@@ -21,14 +21,23 @@ Freeloader shows both, sorted worst-first, on a 3 second window.
 
 ## Reading the columns
 
-Hover any column header in-game for the same explanation; hover a row for the
-full detail on that addon.
+Hover any column header in-game for the same explanation, or the **All addons**
+totals row for the session figures. The addon rows themselves take no mouse
+input — every mouse-enabled frame is a region the client hit-tests as the cursor
+crosses the window, and their tooltips only repeated what the columns showed.
 
 | Column | What it is |
 | --- | --- |
 | **CPU** | Share of one CPU core spent running that addon's Lua, averaged over the sample window. Good for ranking; says nothing about whether the cost is one ugly spike or spread evenly. |
 | **ms/f** | Milliseconds of Lua per rendered frame. At 60 fps the entire frame is 16.7 ms, shared with the game world and everything else. An addon at 2.00 is taking 12% of that away from drawing. This is the column that becomes a framerate drop. |
-| **KB/s** | Kilobytes of Lua memory *allocated* per second — new tables, strings, closures. **Not** memory held: an addon can sit on 20 MB at 0 KB/s and cost you nothing. Allocation is what feeds the garbage collector, and a collection pass is a frame that doesn't get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it. |
+| **KB/s** | Kilobytes of Lua memory *allocated* per second — new tables, strings, closures. **Not** memory held: an addon can sit on 20 MB at 0 KB/s and cost you nothing. Allocation is what feeds the garbage collector, and a collection pass is a frame that doesn't get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it. Sampled every third tick — see below. |
+
+`UpdateAddOnMemoryUsage` is the expensive call in this addon by a wide margin:
+it walks every addon's memory attribution and is a well-known source of a
+periodic hitch. It runs on every third sample rather than every one, so the
+KB/s column updates about every 9 seconds at the default rate while the CPU
+columns stay live. With script profiling off, the CPU half of the sample loop
+is skipped entirely.
 
 The sample window is 3 seconds by default rather than 1. A one-second window is
 both hard to read and noisy — a single GC pass or stray event lands entirely
