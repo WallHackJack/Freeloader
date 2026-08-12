@@ -33,8 +33,10 @@ local function FormatKB(kb)
     return ("%.0f KB"):format(kb)
 end
 
--- The KB/s cell has 58px, so megabytes lose the space and the unit.
+-- The KB/s cell has 58px, so megabytes lose the space and the unit. A dash
+-- when the scan is switched off, which is not the same statement as a zero.
 local function ChurnCell(kb)
+    if not FL.db.memory then return "|cff707070-|r" end
     if kb >= 1024 then return ("%.1fM"):format(kb / 1024) end
     return ("%.0f"):format(kb)
 end
@@ -111,7 +113,7 @@ local COLUMN_HELP = {
         "Kilobytes of Lua memory this addon allocates per second: new tables, strings and closures.",
         "This is not memory it is holding. An addon can sit on 20 MB at 0 KB/s and cost you nothing.",
         "Allocation is what feeds the garbage collector, and a collection pass is a frame that does not get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it.",
-        "Sampled less often than the CPU columns: the scan behind this figure is expensive enough to cause a hitch of its own, and that is not a cost a profiler gets to add.",
+        "Off by default, and shown as a dash when off. The scan behind this figure hitches hard enough to be worse than most of what it would tell you about, and because it is a C call the client bills it to nobody -- not even to Freeloader. Turn it on with /free memory when you are actually hunting a stutter.",
     } },
 }
 
@@ -146,7 +148,11 @@ local function OnTotalEnter(row)
     GameTooltip:AddDoubleLine("Per frame", ("%.2f ms"):format(t.msf), 1, 1, 1, 1, 1, 1)
     GameTooltip:AddDoubleLine("Frame budget",
         ("%.1f%% at 60 fps"):format(t.msf / FRAME_MS * 100), 1, 1, 1, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Allocating", ("%s/s"):format(FormatKB(t.churn)), 1, 1, 1, 1, 1, 1)
+    if FL.db.memory then
+        GameTooltip:AddDoubleLine("Allocating", ("%s/s"):format(FormatKB(t.churn)), 1, 1, 1, 1, 1, 1)
+    else
+        GameTooltip:AddDoubleLine("Allocating", "not tracked", 1, 1, 1, 0.5, 0.5, 0.5)
+    end
 
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("This counts Lua time only. An addon that spawns hundreds of frames costs draw time that never appears in any of these columns -- watch the fps figure below alongside it.",
@@ -339,7 +345,11 @@ function UI:Refresh()
     end
 
     if #rows == 0 then
-        self.lines[1].name:SetText(("|cff808080sampling, %.2gs window...|r"):format(db.rate))
+        if not FL.profilingActive and not db.memory then
+            self.lines[1].name:SetText("|cff909090nothing to measure|r")
+        else
+            self.lines[1].name:SetText(("|cff808080sampling, %.2gs window...|r"):format(db.rate))
+        end
     end
 
     local fps = ("|cffffffff%d fps|r"):format(math.floor(total.fps + 0.5))

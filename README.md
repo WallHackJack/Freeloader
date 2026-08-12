@@ -32,12 +32,19 @@ crosses the window, and their tooltips only repeated what the columns showed.
 | **ms/f** | Milliseconds of Lua per rendered frame. At 60 fps the entire frame is 16.7 ms, shared with the game world and everything else. An addon at 2.00 is taking 12% of that away from drawing. This is the column that becomes a framerate drop. |
 | **KB/s** | Kilobytes of Lua memory *allocated* per second — new tables, strings, closures. **Not** memory held: an addon can sit on 20 MB at 0 KB/s and cost you nothing. Allocation is what feeds the garbage collector, and a collection pass is a frame that doesn't get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it. Sampled every third tick — see below. |
 
-`UpdateAddOnMemoryUsage` is the expensive call in this addon by a wide margin:
-it walks every addon's memory attribution and is a well-known source of a
-periodic hitch. It runs on every third sample rather than every one, so the
-KB/s column updates about every 9 seconds at the default rate while the CPU
-columns stay live. With script profiling off, the CPU half of the sample loop
-is skipped entirely.
+**KB/s is off by default** — `/free memory` turns it on, and the column reads
+`-` until you do. `UpdateAddOnMemoryUsage` walks every addon's memory
+attribution and is a well-known source of a periodic hitch, big enough to be
+worse than most of what it would tell you about. Worse, it's a C call, so the
+script profiler bills its cost to nobody — not even to Freeloader. An addon
+that can't account for its own cost has no business running that cost by
+default.
+
+When it is on, the scan runs on every third sample rather than every one, so
+KB/s updates about every 9 seconds at the default rate while the CPU columns
+stay live. Turn it on when you're actually hunting a stutter, and back off when
+you're done. With script profiling off, the CPU half of the sample loop is
+skipped entirely too.
 
 The sample window is 3 seconds by default rather than 1. A one-second window is
 both hard to read and noisy — a single GC pass or stray event lands entirely
@@ -50,6 +57,7 @@ faster or slower.
 /free              toggle the window
 /free on           enable script profiling (needs a reload)
 /free off          turn it back off
+/free memory       track allocation rate, the KB/s column (default off)
 /free report [n]   cumulative worst offenders since login, printed to chat
 /free reset        zero the counters, start a fresh window
 /free rows <n>     how many lines to show (3-40)

@@ -53,6 +53,10 @@ local defaults = {
     point   = { "CENTER", "CENTER", 0, 0 },
     minimap = true,
     minimapAngle = 200,
+    -- Off by default. The scan behind the KB/s column hitches hard enough to be
+    -- worse than the problem it is describing, and it does not even bill itself
+    -- to Freeloader -- see SetMemory below.
+    memory  = false,
 }
 
 -- UpdateAddOnMemoryUsage walks every addon's memory attribution and is by a
@@ -113,12 +117,14 @@ function FL:Sample()
     -- of this function is a walk over the addon list to collect nothing.
     local profiling = self.profilingActive
 
+    local memory = self.db.memory
+
     if not baselined then
         if profiling then UpdateAddOnCPUUsage() end
-        UpdateAddOnMemoryUsage()
+        if memory then UpdateAddOnMemoryUsage() end
         for i = 1, addonCount do
             prevCPU[i] = profiling and GetAddOnCPUUsage(i) or 0
-            prevMem[i] = GetAddOnMemoryUsage(i)
+            prevMem[i] = memory and GetAddOnMemoryUsage(i) or 0
         end
         wipe(churnRate)
         totalChurn, ticksSinceMem = 0, 0
@@ -128,7 +134,7 @@ function FL:Sample()
 
     local window = now - lastSample
     ticksSinceMem = ticksSinceMem + 1
-    local doMem = ticksSinceMem >= MEM_EVERY
+    local doMem = memory and ticksSinceMem >= MEM_EVERY
     local memWindow = now - lastMem
 
     if profiling then UpdateAddOnCPUUsage() end
@@ -208,12 +214,16 @@ end
 -- one you want after a raid, and the one you can paste into a chat channel.
 function FL:Report(limit)
     UpdateAddOnCPUUsage()
-    UpdateAddOnMemoryUsage()
+    -- Respects the memory toggle rather than sneaking the expensive scan in
+    -- behind a command that reads like it only prints what is already known.
+    local memory = self.db.memory
+    if memory then UpdateAddOnMemoryUsage() end
 
     local elapsed = math.max(GetTime() - self.since, 0.001)
     local list, sumCPU = {}, 0
     for i = 1, addonCount do
-        local cpu, mem = GetAddOnCPUUsage(i), GetAddOnMemoryUsage(i)
+        local cpu = GetAddOnCPUUsage(i)
+        local mem = memory and GetAddOnMemoryUsage(i) or 0
         sumCPU = sumCPU + cpu
         if cpu > 0 or mem > 16 then
             list[#list + 1] = { name = (GetAddOnInfo(i)), cpu = cpu, mem = mem }
@@ -233,13 +243,29 @@ function FL:Report(limit)
     limit = math.min(limit or 10, #list)
     for i = 1, limit do
         local e = list[i]
-        local mem = e.mem >= 1024 and ("%.1f MB"):format(e.mem / 1024) or ("%.0f KB"):format(e.mem)
-        self:Print("  %d. %s -- |cffffd000%.0f ms|r (%.1f%%), %s",
+        local mem = ""
+        if memory then
+            mem = e.mem >= 1024 and (", %.1f MB"):format(e.mem / 1024)
+                                 or (", %.0f KB"):format(e.mem)
+        end
+        self:Print("  %d. %s -- |cffffd000%.0f ms|r (%.1f%%)%s",
             i, e.name, e.cpu, e.cpu / (elapsed * 10), mem)
     end
     if #list > limit then
         self:Print("  |cff909090... and %d more. /free report %d for a longer list.|r", #list - limit, #list)
     end
+end
+
+-- Worth knowing before turning this on: UpdateAddOnMemoryUsage is a C call, so
+-- the scan it performs is engine time, not script time. The profiler bills
+-- addons for Lua, which means the hitch it causes lands on nobody's row --
+-- Freeloader included. An addon that cannot account for its own cost has no
+-- business running that cost by default.
+function FL:SetMemory(on)
+    self.db.memory = on and true or false
+    wipe(churnRate)
+    totalChurn = 0
+    self:Rebase()
 end
 
 function FL:Reset()
@@ -281,6 +307,7 @@ end
 local function Help()
     FL:Print("|cff80c0ff/free|r toggles the window |cff909090(/freeload and /freeloader work too)|r. Also:")
     FL:Print("  |cff80c0ffon|r / |cffdd80ffoff|r -- script profiling, the CVar that makes CPU numbers exist (needs a reload)")
+    FL:Print("  |cff80c0ffmemory|r -- the KB/s column, off by default because the scan behind it hitches")
     FL:Print("  |cff80c0ffreport|r |cff909090[n]|r -- cumulative worst offenders since login, printed here")
     FL:Print("  |cff80c0ffreset|r -- zero the counters and start a fresh window")
     FL:Print("  |cff80c0ffrows|r |cff909090n|r -- how many lines the window shows (%d-%d)", MIN_ROWS, MAX_ROWS)
@@ -323,6 +350,15 @@ SlashCmdList.FREELOADER = function(input)
     elseif cmd == "lock" then
         FL.db.locked = not FL.db.locked
         FL:Print("Window %s.", FL.db.locked and "locked" or "unlocked")
+    elseif cmd == "memory" then
+        FL:SetMemory(not FL.db.memory)
+        if FL.db.memory then
+            FL:Print("Allocation tracking |cff40ff40on|r. The scan runs every %d samples and "
+                .. "can cause a hitch of its own -- that hitch is the cost of the column, not "
+                .. "of the addon at the top of it.", MEM_EVERY)
+        else
+            FL:Print("Allocation tracking |cffff6060off|r. The KB/s column will read |cff909090-|r.")
+        end
     elseif cmd == "minimap" then
         FL.db.minimap = not FL.db.minimap
         FL.MinimapButton:Update()
