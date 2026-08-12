@@ -166,9 +166,12 @@ local COLUMN_HELP = {
     },
     [COL_CPU] = {
         title = "CPU",
+        -- Nothing to say once it is running: it is a precondition, not a
+        -- setting, and a tooltip line reading ON forever is noise.
         status = function()
-            return ("Script profiling is %s.  %s/free on|r and %s/free off|r, both need a reload.")
-                :format(FL.profilingActive and ON or OFF, BLUE, BLUE)
+            if FL.profilingActive then return nil end
+            return ("Script profiling is %s until you reload. Freeloader has already switched it on.")
+                :format(OFF)
         end,
         body = {
             "Share of one CPU core spent running this addon's Lua, averaged over the sample window.",
@@ -202,12 +205,13 @@ local function OnHeaderEnter(hit)
     local help = COLUMN_HELP[hit.column]
     OpenTooltip(help.title)
 
-    if help.status then
-        GameTooltip:AddLine(help.status(), 1, 1, 1, true)
+    local status = help.status and help.status()
+    if status then
+        GameTooltip:AddLine(status, 1, 1, 1, true)
     end
     for i, paragraph in ipairs(help.body) do
         -- Paragraphs, not a wall: a blank line before each one but the first.
-        if i > 1 or help.status then GameTooltip:AddLine(" ") end
+        if i > 1 or status then GameTooltip:AddLine(" ") end
         GameTooltip:AddLine(paragraph, 0.85, 0.85, 0.85, true)
     end
 
@@ -461,7 +465,7 @@ function UI:Refresh()
     elseif f.state.value ~= fps or f.state.budget ~= false then
         f.state.value, f.state.budget = fps, false
         f.state:SetText(format(
-            "|cffffffff%d fps|r   |cffff6060CPU is off.|r |cff80c0ff/free on|r |cff909090to enable it|r",
+            "|cffffffff%d fps|r   |cffff6060CPU columns start after a reload.|r",
             fps))
     end
 

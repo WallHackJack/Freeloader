@@ -237,7 +237,7 @@ function FL:Report(limit)
     self:Print("Since %s -- %s, %d addons loaded, %.1f%% of one core total.",
         self.sinceLabel, FormatDuration(elapsed), addonCount, sumCPU / (elapsed * 10))
     if not self.profilingActive then
-        self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r Run |cff80c0ff/free on|r.")
+        self:Print("|cffff6060Script profiling starts after a reload, so every CPU figure below is zero.|r")
     end
 
     limit = math.min(limit or 10, #list)
@@ -282,7 +282,7 @@ end
 ----------------------------------------------------------------------
 
 StaticPopupDialogs["FREELOADER_RELOAD"] = {
-    text = "Script profiling only changes on a UI reload.\n\nReload now?",
+    text = "Freeloader has switched on script profiling, which is what makes the CPU columns exist.\n\nIt only takes effect on a UI reload.\n\nReload now?",
     button1 = YES,
     button2 = NO,
     OnAccept = ReloadUI,
@@ -292,21 +292,8 @@ StaticPopupDialogs["FREELOADER_RELOAD"] = {
     preferredIndex = 3,
 }
 
-local function SetProfiling(on)
-    SetCVar("scriptProfile", on and "1" or "0")
-    if on == FL.profilingActive then
-        FL:Print("Script profiling is already %s.", on and "|cff40ff40on|r" or "|cffff6060off|r")
-        return
-    end
-    FL:Print("Script profiling will be %s after a reload.%s",
-        on and "|cff40ff40on|r" or "|cffff6060off|r",
-        on and " It costs a few percent CPU on its own, so turn it back off when you are done." or "")
-    StaticPopup_Show("FREELOADER_RELOAD")
-end
-
 local function Help()
     FL:Print("|cff80c0ff/free|r toggles the window |cff909090(/freeload and /freeloader work too)|r. Also:")
-    FL:Print("  |cff80c0ffon|r / |cffdd80ffoff|r -- script profiling, the CVar that makes CPU numbers exist (needs a reload)")
     FL:Print("  |cff80c0ffmemory|r -- the KB/s column, off by default because the scan behind it hitches")
     FL:Print("  |cff80c0ffreport|r |cff909090[n]|r -- cumulative worst offenders since login, printed here")
     FL:Print("  |cff80c0ffreset|r -- zero the counters and start a fresh window")
@@ -328,8 +315,6 @@ SlashCmdList.FREELOADER = function(input)
 
     if cmd == "" then
         FL.UI:Toggle()
-    elseif cmd == "on" or cmd == "off" then
-        SetProfiling(cmd == "on")
     elseif cmd == "report" then
         FL:Report(tonumber(arg))
     elseif cmd == "reset" then
@@ -374,7 +359,26 @@ end
 
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
-loader:SetScript("OnEvent", function(self, _, name)
+loader:RegisterEvent("PLAYER_LOGIN")
+loader:SetScript("OnEvent", function(self, event, name)
+    -- Script profiling is not a feature to be offered, it is the precondition
+    -- for three of the four columns. So Freeloader switches the CVar on and
+    -- asks for the one reload that makes it take effect. The CVar persists in
+    -- Config.wtf, so this happens once per client and never again.
+    --
+    -- Deferred to PLAYER_LOGIN because StaticPopup_Show during ADDON_LOADED is
+    -- early enough that the popup can land before the frames it needs exist.
+    if event == "PLAYER_LOGIN" then
+        self:UnregisterEvent("PLAYER_LOGIN")
+        if not FL.profilingActive then
+            SetCVar("scriptProfile", "1")
+            FL:Print("Switched on script profiling -- without it the CPU columns "
+                .. "read zero. It needs one reload, then stays on.")
+            StaticPopup_Show("FREELOADER_RELOAD")
+        end
+        return
+    end
+
     if name ~= ADDON then return end
     self:UnregisterEvent("ADDON_LOADED")
 

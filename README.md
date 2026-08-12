@@ -55,8 +55,6 @@ faster or slower.
 
 ```
 /free              toggle the window
-/free on           enable script profiling (needs a reload)
-/free off          turn it back off
 /free memory       track allocation rate, the KB/s column (default off)
 /free report [n]   cumulative worst offenders since login, printed to chat
 /free reset        zero the counters, start a fresh window
@@ -81,12 +79,16 @@ Use the close button or `/free`.
 ## Script profiling
 
 CPU numbers only exist when the `scriptProfile` CVar is on, and that CVar only
-changes on a UI reload — `/free on` sets it and offers the reload. Memory and
-allocation rate work without it.
+takes effect on a UI reload. There is no toggle for it: profiling isn't a
+feature, it's the precondition for three of the four columns, so Freeloader
+switches it on at login and asks for the one reload that activates it. The CVar
+persists in `Config.wtf`, so that happens once per client and never again.
 
-Profiling adds a few percent CPU of its own, so the honest workflow is: turn it
-on, reproduce the problem, read the list, turn it off. Absolute milliseconds are
-inflated while it runs; the *ranking* is what you should trust.
+The tradeoff you're accepting: profiling adds a few percent CPU of its own, for
+every session, whether or not the window is open. Absolute milliseconds are
+inflated while it runs — the *ranking* is what to trust. If you ever want it
+back off, it's `/console scriptProfile 0` and a reload, and Freeloader will turn
+it on again the next time it loads.
 
 ## Caveats worth knowing
 
