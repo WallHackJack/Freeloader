@@ -21,24 +21,79 @@ local TOTAL_Y  = -46   -- the totals sit in the grid, as a row, above the rule
 local RULE_Y   = TOTAL_Y - ROW_H - 1
 local ROWS_TOP = -65
 
-local function ColorFor(pct)
-    if pct >= 5.0 then return 1.00, 0.35, 0.35 end
-    if pct >= 2.0 then return 1.00, 0.82, 0.00 end
-    if pct >= 0.5 then return 0.90, 0.90, 0.90 end
-    return 0.55, 0.55, 0.55
+local format = string.format
+local floor = math.floor
+
+-- Colour is a band, not a gradient, so a cell can compare bands and skip the
+-- SetTextColor entirely -- which is most repaints, since a row rarely crosses
+-- a threshold between two samples.
+local BANDS = {
+    { 1.00, 0.35, 0.35 },   -- 1: >= 5% of a core
+    { 1.00, 0.82, 0.00 },   -- 2: >= 2%
+    { 0.90, 0.90, 0.90 },   -- 3: >= 0.5%
+    { 0.55, 0.55, 0.55 },   -- 4: below that
+}
+
+local function BandFor(pct)
+    if pct >= 5.0 then return 1 end
+    if pct >= 2.0 then return 2 end
+    if pct >= 0.5 then return 3 end
+    return 4
 end
 
 local function FormatKB(kb)
-    if kb >= 1024 then return ("%.1f MB"):format(kb / 1024) end
-    return ("%.0f KB"):format(kb)
+    if kb >= 1024 then return format("%.1f MB", kb / 1024) end
+    return format("%.0f KB", kb)
 end
 
--- The KB/s cell has 58px, so megabytes lose the space and the unit. A dash
--- when the scan is switched off, which is not the same statement as a zero.
+-- The KB/s cell has 58px, so megabytes lose the space and the unit.
 local function ChurnCell(kb)
-    if not FL.db.memory then return "|cff707070-|r" end
-    if kb >= 1024 then return ("%.1fM"):format(kb / 1024) end
-    return ("%.0f"):format(kb)
+    if kb >= 1024 then return format("%.1fM", kb / 1024) end
+    return format("%.0f", kb)
+end
+
+-- A dash when the scan is switched off, which is not the same statement as a
+-- zero would be.
+local DASH = "|cff707070-|r"
+
+----------------------------------------------------------------------
+-- Cells
+----------------------------------------------------------------------
+
+-- SetText re-runs the font layout for that string whether or not the string
+-- differs from the one already there, and a table of thirteen rows is fifty-odd
+-- of those landing in a single frame. So every cell remembers the VALUE behind
+-- its text and repaints only when that value moves. Comparing the value rather
+-- than the finished string also skips the string.format, which is the other
+-- half of the cost and the half that makes garbage.
+
+local function Str(fs, text)
+    if fs.value == text then return end
+    fs.value = text
+    fs:SetText(text)
+end
+
+-- Rounded to the precision the cell actually prints, so a number jittering in
+-- digits nobody can see does not force a repaint.
+local function Num(fs, value, mult, fmt)
+    value = floor(value * mult + 0.5) / mult
+    if fs.value == value then return end
+    fs.value = value
+    fs:SetText(format(fmt, value))
+end
+
+local function Churn(fs, kb, tracking)
+    local key = tracking and floor(kb + 0.5) or false
+    if fs.value == key then return end
+    fs.value = key
+    fs:SetText(tracking and ChurnCell(kb) or DASH)
+end
+
+local function Band(fs, band)
+    if fs.band == band then return end
+    fs.band = band
+    local c = BANDS[band]
+    fs:SetTextColor(c[1], c[2], c[3])
 end
 
 local function Text(parent, font, x, y, width, justify)
@@ -322,47 +377,64 @@ function UI:Refresh()
     local rows, total, db = FL.rows, FL.total, FL.db
     local f = self.frame
 
+    local memory = db.memory
+
+    -- Resolved before the loop so the first row is written once, rather than
+    -- cleared by the loop and rewritten by the empty-state check right after.
+    local placeholder
+    if #rows == 0 then
+        if not FL.profilingActive and not memory then
+            placeholder = "|cff909090nothing to measure|r"
+        else
+            placeholder = format("|cff808080sampling, %.2gs window...|r", db.rate)
+        end
+    end
+
     local tr = self.totalRow
-    tr.cpu:SetText(("%.1f%%"):format(total.cpu))
-    tr.msf:SetText(("%.2f"):format(total.msf))
-    tr.kbs:SetText(ChurnCell(total.churn))
+    Num(tr.cpu, total.cpu, 10, "%.1f%%")
+    Num(tr.msf, total.msf, 100, "%.2f")
+    Churn(tr.kbs, total.churn, memory)
 
     for i = 1, db.rows do
         local row, r = self.lines[i], rows[i]
         if r then
-            row.name:SetText(r.name)
-            row.name:SetTextColor(ColorFor(r.pct))
-            row.cpu:SetText(("%.1f%%"):format(r.pct))
-            row.cpu:SetTextColor(ColorFor(r.pct))
-            row.msf:SetText(("%.2f"):format(r.msf))
-            row.kbs:SetText(ChurnCell(r.churn))
+            local band = BandFor(r.pct)
+            Str(row.name, r.name)
+            Band(row.name, band)
+            Band(row.cpu, band)
+            Num(row.cpu, r.pct, 10, "%.1f%%")
+            Num(row.msf, r.msf, 100, "%.2f")
+            Churn(row.kbs, r.churn, memory)
         else
-            row.name:SetText("")
-            row.cpu:SetText("")
-            row.msf:SetText("")
-            row.kbs:SetText("")
+            Str(row.name, (i == 1 and placeholder) or "")
+            Str(row.cpu, "")
+            Str(row.msf, "")
+            Str(row.kbs, "")
         end
     end
 
-    if #rows == 0 then
-        if not FL.profilingActive and not db.memory then
-            self.lines[1].name:SetText("|cff909090nothing to measure|r")
-        else
-            self.lines[1].name:SetText(("|cff808080sampling, %.2gs window...|r"):format(db.rate))
-        end
-    end
-
-    local fps = ("|cffffffff%d fps|r"):format(math.floor(total.fps + 0.5))
+    -- fps moves every sample, so this line is the one repaint that always
+    -- earns itself. Everything above it usually does not.
+    local fps = floor(total.fps + 0.5)
     if FL.profilingActive then
         -- The share of one 60 fps frame is a much sharper number than "3.2 ms".
-        f.state:SetText(("%s   |cff909090addon Lua is taking %.0f%% of a 60 fps frame budget|r")
-            :format(fps, total.msf / FRAME_MS * 100))
-    else
-        f.state:SetText(("%s   |cffff6060CPU is off.|r |cff80c0ff/free on|r |cff909090to enable it|r")
-            :format(fps))
+        local budget = floor(total.msf / FRAME_MS * 100 + 0.5)
+        if f.state.value ~= fps or f.state.budget ~= budget then
+            f.state.value, f.state.budget = fps, budget
+            f.state:SetText(format(
+                "|cffffffff%d fps|r   |cff909090addon Lua is taking %d%% of a 60 fps frame budget|r",
+                fps, budget))
+        end
+    elseif f.state.value ~= fps or f.state.budget ~= false then
+        f.state.value, f.state.budget = fps, false
+        f.state:SetText(format(
+            "|cffffffff%d fps|r   |cffff6060CPU is off.|r |cff80c0ff/free on|r |cff909090to enable it|r",
+            fps))
     end
-    f.rate:SetText(("|cff909090Refreshes every %.2gs, use |r|cff80c0ff/free rate|r|cff909090 to edit|r")
-        :format(db.rate))
+
+    -- Only moves when /free rate does.
+    Num(f.rate, db.rate, 100,
+        "|cff909090Refreshes every %.2gs, use |r|cff80c0ff/free rate|r|cff909090 to edit|r")
 end
 
 function UI:Show()   self.frame:Show() end
