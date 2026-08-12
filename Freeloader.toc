@@ -1,4 +1,4 @@
-## Interface: 20505, 11509
+## Interface: 20506, 11509
 ## Title: Freeloader
 ## Notes: Which addon isn't paying its way. Live CPU and memory per addon.
 ## Author: Wallhackjack
