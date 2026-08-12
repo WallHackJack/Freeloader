@@ -15,8 +15,11 @@ local COL_NAME, COL_CPU, COL_MSF, COL_KBS = 0, 150, 206, 262
 local W_NAME, W_CPU, W_MSF, W_KBS = 148, 52, 52, 58
 local CONTENT_W = 320
 local FRAME_W = CONTENT_W + PAD * 2
-local ROWS_TOP = -46   -- first row's y, below the title and column headers
 local FRAME_MS = 16.67 -- one frame at 60 fps
+
+local HEADER_Y = -30
+local TOTAL_Y  = -46   -- the totals sit in the grid, as a row, above the rule
+local ROWS_TOP = -63
 
 local function ColorFor(pct)
     if pct >= 5.0 then return 1.00, 0.35, 0.35 end
@@ -30,6 +33,12 @@ local function FormatKB(kb)
     return ("%.0f KB"):format(kb)
 end
 
+-- The KB/s cell has 58px, so megabytes lose the space and the unit.
+local function ChurnCell(kb)
+    if kb >= 1024 then return ("%.1fM"):format(kb / 1024) end
+    return ("%.0f"):format(kb)
+end
+
 local function Text(parent, font, x, y, width, justify)
     local fs = parent:CreateFontString(nil, "ARTWORK", font)
     fs:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
@@ -37,6 +46,10 @@ local function Text(parent, font, x, y, width, justify)
     fs:SetJustifyH(justify)
     if fs.SetWordWrap then fs:SetWordWrap(false) end
     return fs
+end
+
+local function SetSolid(tex, r, g, b, a)
+    if tex.SetColorTexture then tex:SetColorTexture(r, g, b, a) else tex:SetTexture(r, g, b, a) end
 end
 
 ----------------------------------------------------------------------
@@ -83,7 +96,7 @@ end
 local COLUMN_HELP = {
     [COL_NAME] = { "Addon", {
         "Every addon the client has loaded, worst first, including Freeloader itself.",
-        "An addon only gets a row if at least one of its three columns has a non-zero number to show. The totals below still count everything, including the addons too quiet to list.",
+        "An addon only gets a row if at least one of its three columns has a non-zero number to show. The totals row still counts everything, including the addons too quiet to list.",
     } },
     [COL_CPU] = { "CPU", {
         "Share of one CPU core spent running this addon's Lua, averaged over the sample window.",
@@ -108,6 +121,11 @@ local function OnHeaderEnter(hit)
         GameTooltip:AddLine(line, 0.85, 0.85, 0.85, true)
     end
     GameTooltip:Show()
+end
+
+local function OnRowLeave(row)
+    row.highlight:Hide()
+    HideTooltip()
 end
 
 local function OnRowEnter(row)
@@ -140,14 +158,77 @@ local function OnRowEnter(row)
     GameTooltip:Show()
 end
 
-local function OnRowLeave(row)
-    row.highlight:Hide()
-    HideTooltip()
+local function OnTotalEnter(row)
+    local t = FL.total
+    row.highlight:Show()
+
+    OpenTooltip("All addons")
+    GameTooltip:AddLine("Every loaded addon summed, including the ones too quiet to earn a row of their own.",
+        0.85, 0.85, 0.85, true)
+
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine(("Over the last %.2gs"):format(t.window), 1, 0.82, 0)
+    GameTooltip:AddDoubleLine("CPU", ("%.2f%% of a core"):format(t.cpu), 1, 1, 1, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Per frame", ("%.2f ms"):format(t.msf), 1, 1, 1, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Frame budget",
+        ("%.1f%% at 60 fps"):format(t.msf / FRAME_MS * 100), 1, 1, 1, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Allocating", ("%s/s"):format(FormatKB(t.churn)), 1, 1, 1, 1, 1, 1)
+
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("This counts Lua time only. An addon that spawns hundreds of frames costs draw time that never appears in any of these columns -- watch the fps figure below alongside it.",
+        0.7, 0.7, 0.7, true)
+    GameTooltip:Show()
 end
 
 ----------------------------------------------------------------------
 -- Construction
 ----------------------------------------------------------------------
+
+function UI:CreateRow(y, onEnter)
+    local f = self.frame
+    local row = CreateFrame("Frame", nil, f)
+    row:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, y)
+    row:SetSize(CONTENT_W, ROW_H)
+    row:EnableMouse(true)
+    row:SetScript("OnEnter", onEnter)
+    row:SetScript("OnLeave", OnRowLeave)
+    MakeDraggable(row)
+
+    local hl = row:CreateTexture(nil, "BACKGROUND")
+    hl:SetAllPoints()
+    SetSolid(hl, 1, 1, 1, 0.09)
+    hl:Hide()
+    row.highlight = hl
+
+    row.name = Text(row, "GameFontHighlightSmall", COL_NAME, 0, W_NAME, "LEFT")
+    row.cpu  = Text(row, "GameFontHighlightSmall", COL_CPU,  0, W_CPU,  "RIGHT")
+    row.msf  = Text(row, "GameFontHighlightSmall", COL_MSF,  0, W_MSF,  "RIGHT")
+    row.kbs  = Text(row, "GameFontHighlightSmall", COL_KBS,  0, W_KBS,  "RIGHT")
+    return row
+end
+
+function UI:BuildHeader()
+    local f = self.frame
+    local columns = {
+        { COL_NAME, W_NAME, "Addon", "LEFT" },
+        { COL_CPU,  W_CPU,  "CPU",   "RIGHT" },
+        { COL_MSF,  W_MSF,  "ms/f",  "RIGHT" },
+        { COL_KBS,  W_KBS,  "KB/s",  "RIGHT" },
+    }
+    for _, c in ipairs(columns) do
+        local x, width, label, justify = c[1], c[2], c[3], c[4]
+        Text(f, "GameFontNormalSmall", PAD + x, HEADER_Y, width, justify):SetText(label)
+
+        local hit = CreateFrame("Frame", nil, f)
+        hit:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + x, HEADER_Y)
+        hit:SetSize(width, 12)
+        hit:EnableMouse(true)
+        hit.column = x
+        hit:SetScript("OnEnter", OnHeaderEnter)
+        hit:SetScript("OnLeave", HideTooltip)
+        MakeDraggable(hit)
+    end
+end
 
 function UI:Init()
     if self.frame then return end
@@ -184,13 +265,28 @@ function UI:Init()
     close:SetPoint("TOPRIGHT", f, "TOPRIGHT", 1, 1)
     close:SetScript("OnClick", function() UI:Hide() end)
 
+    self:BuildHeader()
+
+    -- The totals belong in the grid: they are the same three quantities in the
+    -- same three columns, and a reader comparing a row against the total should
+    -- not have to re-find the numbers in a sentence at the bottom.
+    self.totalRow = self:CreateRow(TOTAL_Y, OnTotalEnter)
+    self.totalRow.name:SetText("All addons")
+    self.totalRow.name:SetTextColor(1, 0.82, 0)
+    self.totalRow.cpu:SetTextColor(1, 0.82, 0)
+    self.totalRow.msf:SetTextColor(1, 0.82, 0)
+    self.totalRow.kbs:SetTextColor(1, 0.82, 0)
+
+    local rule = f:CreateTexture(nil, "ARTWORK")
+    rule:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, TOTAL_Y - ROW_H - 2)
+    rule:SetSize(CONTENT_W, 1)
+    SetSolid(rule, 1, 1, 1, 0.18)
+
     self.lines = {}
-    f.summary = Text(f, "GameFontHighlightSmall", PAD, 0, CONTENT_W, "LEFT")
-    f.state   = Text(f, "GameFontHighlightSmall", PAD, 0, CONTENT_W, "LEFT")
-    -- Full content width down in the footer: the wording does not fit in the
-    -- title corner where the bare interval used to sit, and a hint nobody can
-    -- read is not a hint.
-    f.rate    = Text(f, "GameFontDisableSmall", PAD, 0, CONTENT_W, "LEFT")
+    -- fps has no column of its own -- it is not a per-addon quantity -- so it
+    -- keeps the footer line the totals used to occupy.
+    f.state = Text(f, "GameFontHighlightSmall", PAD, 0, CONTENT_W, "LEFT")
+    f.rate  = Text(f, "GameFontDisableSmall", PAD, 0, CONTENT_W, "LEFT")
 
     f:SetScript("OnShow", function()
         FL.db.shown = true
@@ -208,31 +304,7 @@ function UI:Init()
     -- while you play, and Escape is a key you hit constantly for other reasons.
     -- The close button and /free are the ways out.
 
-    self:BuildHeader(ROWS_TOP + ROW_H + 3)
     self:Layout()
-end
-
-function UI:BuildHeader(y)
-    local f = self.frame
-    local columns = {
-        { COL_NAME, W_NAME, "Addon", "LEFT" },
-        { COL_CPU,  W_CPU,  "CPU",   "RIGHT" },
-        { COL_MSF,  W_MSF,  "ms/f",  "RIGHT" },
-        { COL_KBS,  W_KBS,  "KB/s",  "RIGHT" },
-    }
-    for _, c in ipairs(columns) do
-        local x, width, label, justify = c[1], c[2], c[3], c[4]
-        Text(f, "GameFontNormalSmall", PAD + x, y, width, justify):SetText(label)
-
-        local hit = CreateFrame("Frame", nil, f)
-        hit:SetPoint("TOPLEFT", f, "TOPLEFT", PAD + x, y)
-        hit:SetSize(width, 12)
-        hit:EnableMouse(true)
-        hit.column = x
-        hit:SetScript("OnEnter", OnHeaderEnter)
-        hit:SetScript("OnLeave", HideTooltip)
-        MakeDraggable(hit)
-    end
 end
 
 -- Rows are built on demand and never destroyed: /free rows is a display
@@ -242,29 +314,7 @@ function UI:Layout()
 
     for i = 1, n do
         if not self.lines[i] then
-            local row = CreateFrame("Frame", nil, f)
-            row:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, ROWS_TOP - (i - 1) * ROW_H)
-            row:SetSize(CONTENT_W, ROW_H)
-            row:EnableMouse(true)
-            row:SetScript("OnEnter", OnRowEnter)
-            row:SetScript("OnLeave", OnRowLeave)
-            MakeDraggable(row)
-
-            local hl = row:CreateTexture(nil, "BACKGROUND")
-            hl:SetAllPoints()
-            if hl.SetColorTexture then
-                hl:SetColorTexture(1, 1, 1, 0.09)
-            else
-                hl:SetTexture(1, 1, 1, 0.09)
-            end
-            hl:Hide()
-
-            row.highlight = hl
-            row.name = Text(row, "GameFontHighlightSmall", COL_NAME, 0, W_NAME, "LEFT")
-            row.cpu  = Text(row, "GameFontHighlightSmall", COL_CPU,  0, W_CPU,  "RIGHT")
-            row.msf  = Text(row, "GameFontHighlightSmall", COL_MSF,  0, W_MSF,  "RIGHT")
-            row.kbs  = Text(row, "GameFontHighlightSmall", COL_KBS,  0, W_KBS,  "RIGHT")
-            self.lines[i] = row
+            self.lines[i] = self:CreateRow(ROWS_TOP - (i - 1) * ROW_H, OnRowEnter)
         end
         self.lines[i]:Show()
     end
@@ -273,13 +323,11 @@ function UI:Layout()
     end
 
     local footer = ROWS_TOP - n * ROW_H - 6
-    f.summary:ClearAllPoints()
-    f.summary:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, footer)
     f.state:ClearAllPoints()
-    f.state:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, footer - 12)
+    f.state:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, footer)
     f.rate:ClearAllPoints()
-    f.rate:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, footer - 24)
-    f:SetHeight(-footer + 12 + 12 + 12 + PAD)
+    f.rate:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, footer - 12)
+    f:SetHeight(-footer + 12 + 12 + PAD)
 
     self:Refresh()
 end
@@ -287,6 +335,11 @@ end
 function UI:Refresh()
     local rows, total, db = FL.rows, FL.total, FL.db
     local f = self.frame
+
+    local tr = self.totalRow
+    tr.cpu:SetText(("%.1f%%"):format(total.cpu))
+    tr.msf:SetText(("%.2f"):format(total.msf))
+    tr.kbs:SetText(ChurnCell(total.churn))
 
     for i = 1, db.rows do
         local row, r = self.lines[i], rows[i]
@@ -297,8 +350,7 @@ function UI:Refresh()
             row.cpu:SetText(("%.1f%%"):format(r.pct))
             row.cpu:SetTextColor(ColorFor(r.pct))
             row.msf:SetText(("%.2f"):format(r.msf))
-            row.kbs:SetText(r.churn >= 1024 and ("%.1fM"):format(r.churn / 1024)
-                                             or ("%.0f"):format(r.churn))
+            row.kbs:SetText(ChurnCell(r.churn))
         else
             row.name:SetText("")
             row.cpu:SetText("")
@@ -311,18 +363,17 @@ function UI:Refresh()
         self.lines[1].name:SetText(("|cff808080sampling, %.2gs window...|r"):format(db.rate))
     end
 
-    f.rate:SetText(("|cff909090Refreshes every %.2gs, use |r|cff80c0ff/free rate|r|cff909090 to edit|r")
-        :format(db.rate))
-    f.summary:SetText(("|cff909090all addons|r  %.1f%%   %.2f ms/f   %.0f KB/s   |cff909090at|r %d fps")
-        :format(total.cpu, total.msf, total.churn, math.floor(total.fps + 0.5)))
-
+    local fps = ("|cffffffff%d fps|r"):format(math.floor(total.fps + 0.5))
     if FL.profilingActive then
         -- The share of one 60 fps frame is a much sharper number than "3.2 ms".
-        f.state:SetText(("|cff909090%.0f%% of a 60 fps frame budget spent in addon Lua.|r")
-            :format(total.msf / FRAME_MS * 100))
+        f.state:SetText(("%s   |cff909090addon Lua is taking %.0f%% of a 60 fps frame budget|r")
+            :format(fps, total.msf / FRAME_MS * 100))
     else
-        f.state:SetText("|cffff6060CPU is off.|r |cff80c0ff/free on|r |cff909090to enable script profiling.|r")
+        f.state:SetText(("%s   |cffff6060CPU is off.|r |cff80c0ff/free on|r |cff909090to enable it|r")
+            :format(fps))
     end
+    f.rate:SetText(("|cff909090Refreshes every %.2gs, use |r|cff80c0ff/free rate|r|cff909090 to edit|r")
+        :format(db.rate))
 end
 
 function UI:Show()   self.frame:Show() end
