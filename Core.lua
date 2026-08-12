@@ -237,7 +237,7 @@ function FL:Report(limit)
     self:Print("Since %s -- %s, %d addons loaded, %.1f%% of one core total.",
         self.sinceLabel, FormatDuration(elapsed), addonCount, sumCPU / (elapsed * 10))
     if not self.profilingActive then
-        self:Print("|cffff6060Script profiling starts after a reload, so every CPU figure below is zero.|r")
+        self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r Run |cff80c0ff/free on|r.")
     end
 
     limit = math.min(limit or 10, #list)
@@ -281,19 +281,46 @@ end
 -- Slash commands
 ----------------------------------------------------------------------
 
+-- The CVar is set in OnAccept, not before the prompt: decline it and nothing
+-- about the client has changed. An addon that is meant to cost nothing in the
+-- background does not get to flip a client-wide switch on the way to asking.
 StaticPopupDialogs["FREELOADER_RELOAD"] = {
-    text = "Freeloader has switched on script profiling, which is what makes the CPU columns exist.\n\nIt only takes effect on a UI reload.\n\nReload now?",
+    text = "",
     button1 = YES,
     button2 = NO,
-    OnAccept = ReloadUI,
+    OnAccept = function()
+        SetCVar("scriptProfile", FL.pendingProfile and "1" or "0")
+        ReloadUI()
+    end,
     timeout = 0,
     whileDead = true,
     hideOnEscape = true,
     preferredIndex = 3,
 }
 
+local ASK_ON = "The CPU columns need script profiling, and the client only starts it on a UI reload."
+    .. "\n\nTurn it on and reload now?"
+    .. "\n\nIt costs a few percent CPU for the rest of the session, so end it with /free off when you are done."
+local ASK_OFF = "Script profiling only stops on a UI reload.\n\nReload now?"
+
+local function AskProfiling(on)
+    FL.pendingProfile = on
+    StaticPopupDialogs["FREELOADER_RELOAD"].text = on and ASK_ON or ASK_OFF
+    StaticPopup_Show("FREELOADER_RELOAD")
+end
+
+-- Asked when the window opens, because opening the window is the moment you
+-- have said you want CPU numbers. Once per session: a prompt that returns every
+-- time you open a monitor is a prompt you learn to dismiss without reading.
+function FL:OfferProfiling()
+    if self.profilingActive or self.offered or not self.ready then return end
+    self.offered = true
+    AskProfiling(true)
+end
+
 local function Help()
     FL:Print("|cff80c0ff/free|r toggles the window |cff909090(/freeload and /freeloader work too)|r. Also:")
+    FL:Print("  |cff80c0ffon|r / |cff80c0ffoff|r -- script profiling, what makes the CPU columns exist (needs a reload)")
     FL:Print("  |cff80c0ffmemory|r -- the KB/s column, off by default because the scan behind it hitches")
     FL:Print("  |cff80c0ffreport|r |cff909090[n]|r -- cumulative worst offenders since login, printed here")
     FL:Print("  |cff80c0ffreset|r -- zero the counters and start a fresh window")
@@ -315,6 +342,14 @@ SlashCmdList.FREELOADER = function(input)
 
     if cmd == "" then
         FL.UI:Toggle()
+    elseif cmd == "on" or cmd == "off" then
+        local want = (cmd == "on")
+        if want == FL.profilingActive then
+            FL:Print("Script profiling is already %s.",
+                want and "|cff40ff40on|r" or "|cffff6060off|r")
+        else
+            AskProfiling(want)
+        end
     elseif cmd == "report" then
         FL:Report(tonumber(arg))
     elseif cmd == "reset" then
@@ -361,21 +396,13 @@ local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:RegisterEvent("PLAYER_LOGIN")
 loader:SetScript("OnEvent", function(self, event, name)
-    -- Script profiling is not a feature to be offered, it is the precondition
-    -- for three of the four columns. So Freeloader switches the CVar on and
-    -- asks for the one reload that makes it take effect. The CVar persists in
-    -- Config.wtf, so this happens once per client and never again.
-    --
-    -- Deferred to PLAYER_LOGIN because StaticPopup_Show during ADDON_LOADED is
-    -- early enough that the popup can land before the frames it needs exist.
+    -- Nothing is asked before login: a StaticPopup raised during ADDON_LOADED
+    -- can land before the frames it needs exist. This gate is also what stops
+    -- a window restored as open from prompting too early.
     if event == "PLAYER_LOGIN" then
         self:UnregisterEvent("PLAYER_LOGIN")
-        if not FL.profilingActive then
-            SetCVar("scriptProfile", "1")
-            FL:Print("Switched on script profiling -- without it the CPU columns "
-                .. "read zero. It needs one reload, then stays on.")
-            StaticPopup_Show("FREELOADER_RELOAD")
-        end
+        FL.ready = true
+        if FL.UI.frame:IsShown() then FL:OfferProfiling() end
         return
     end
 

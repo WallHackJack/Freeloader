@@ -55,6 +55,8 @@ faster or slower.
 
 ```
 /free              toggle the window
+/free on           start script profiling, what makes CPU numbers exist
+/free off          stop it, and stop paying for it
 /free memory       track allocation rate, the KB/s column (default off)
 /free report [n]   cumulative worst offenders since login, printed to chat
 /free reset        zero the counters, start a fresh window
@@ -78,17 +80,26 @@ Use the close button or `/free`.
 
 ## Script profiling
 
-CPU numbers only exist when the `scriptProfile` CVar is on, and that CVar only
-takes effect on a UI reload. There is no toggle for it: profiling isn't a
-feature, it's the precondition for three of the four columns, so Freeloader
-switches it on at login and asks for the one reload that activates it. The CVar
-persists in `Config.wtf`, so that happens once per client and never again.
+CPU numbers only exist when the `scriptProfile` CVar is on, and the client only
+applies that CVar on a UI reload. **It cannot be scoped to the window being
+open** — it's session-wide or nothing.
 
-The tradeoff you're accepting: profiling adds a few percent CPU of its own, for
-every session, whether or not the window is open. Absolute milliseconds are
-inflated while it runs — the *ranking* is what to trust. If you ever want it
-back off, it's `/console scriptProfile 0` and a reload, and Freeloader will turn
-it on again the next time it loads.
+So it's opt-in. Freeloader asks the first time you open the window in a session
+where profiling is off, and sets nothing unless you accept; decline and nothing
+about your client has changed. `/free on` and `/free off` do the same thing
+deliberately. Profiling costs a few percent CPU for as long as it runs, so the
+honest workflow is: turn it on, reproduce the problem, read the list, `/free
+off`. Absolute milliseconds are inflated while it runs — the *ranking* is what
+to trust.
+
+Memory and allocation rate don't need it.
+
+## What it costs when you're not using it
+
+Nothing, by construction. With the window closed there is no `OnUpdate`, no
+timer and no event registered beyond the one that loads saved variables — hidden
+frames don't tick, so no sampling and no repainting happens. With profiling off
+as well, Freeloader is inert until you type `/free`.
 
 ## Caveats worth knowing
 

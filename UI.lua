@@ -166,12 +166,13 @@ local COLUMN_HELP = {
     },
     [COL_CPU] = {
         title = "CPU",
-        -- Nothing to say once it is running: it is a precondition, not a
-        -- setting, and a tooltip line reading ON forever is noise.
         status = function()
-            if FL.profilingActive then return nil end
-            return ("Script profiling is %s until you reload. Freeloader has already switched it on.")
-                :format(OFF)
+            if FL.profilingActive then
+                return ("Script profiling is %s. It costs a few percent CPU for as long as it runs, so %s/free off|r when you are done.")
+                    :format(ON, BLUE)
+            end
+            return ("Script profiling is %s, so these numbers are zero. %s/free on|r starts it, which needs a reload.")
+                :format(OFF, BLUE)
         end,
         body = {
             "Share of one CPU core spent running this addon's Lua, averaged over the sample window.",
@@ -370,6 +371,9 @@ function UI:Init()
         FL.db.shown = true
         FL:Rebase()
         UI:Refresh()
+        -- Opening the window is the moment you have said you want CPU numbers,
+        -- so it is the moment to ask for the reload that produces them.
+        FL:OfferProfiling()
     end)
     f:SetScript("OnHide", function() FL.db.shown = false end)
     -- Hidden frames get no OnUpdate, so a closed window samples nothing and
@@ -465,7 +469,7 @@ function UI:Refresh()
     elseif f.state.value ~= fps or f.state.budget ~= false then
         f.state.value, f.state.budget = fps, false
         f.state:SetText(format(
-            "|cffffffff%d fps|r   |cffff6060CPU columns start after a reload.|r",
+            "|cffffffff%d fps|r   |cffff6060CPU is off.|r |cff80c0ff/free on|r |cff909090to enable it|r",
             fps))
     end
 
