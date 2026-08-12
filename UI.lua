@@ -19,7 +19,10 @@ local FRAME_MS = 16.67 -- one frame at 60 fps
 
 local HEADER_Y = -30
 local TOTAL_Y  = -46   -- the totals sit in the grid, as a row, above the rule
-local ROWS_TOP = -63
+-- The rule sits tight under the totals and well clear of the rows below it, so
+-- it reads as belonging to the total rather than floating between the two.
+local RULE_Y   = TOTAL_Y - ROW_H - 1
+local ROWS_TOP = -65
 
 local function ColorFor(pct)
     if pct >= 5.0 then return 1.00, 0.35, 0.35 end
@@ -278,7 +281,7 @@ function UI:Init()
     self.totalRow.kbs:SetTextColor(1, 0.82, 0)
 
     local rule = f:CreateTexture(nil, "ARTWORK")
-    rule:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, TOTAL_Y - ROW_H - 2)
+    rule:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, RULE_Y)
     rule:SetSize(CONTENT_W, 1)
     SetSolid(rule, 1, 1, 1, 0.18)
 
