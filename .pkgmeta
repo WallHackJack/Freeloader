@@ -1,0 +1,9 @@
+package-as: Freeloader
+
+ignore:
+    - README.md
+    - .pkgmeta
+    # CurseForge project-page art, not an in-game asset: WoW cannot load a JPEG
+    # as a texture. If real in-game art ever lands in Media, narrow this entry
+    # rather than widening it to the whole folder.
+    - Media/icon.jpg
