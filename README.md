@@ -48,21 +48,20 @@ skipped entirely too.
 
 The sample window is 3 seconds by default rather than 1. A one-second window is
 both hard to read and noisy — a single GC pass or stray event lands entirely
-inside it and throws that row to the top. `/free rate <n>` if you want it
+inside it and throws that row to the top. `/free rate <seconds>` if you want it
 faster or slower.
 
 ## Usage
 
 ```
-/free              toggle the window
-/free on           start script profiling, what makes CPU numbers exist
-/free off          stop it, and stop paying for it
-/free memory       track allocation rate, the KB/s column (default off)
-/free report [n]   cumulative worst offenders since login, printed to chat
-/free reset        zero the counters, start a fresh window
-/free rows <n>     how many lines to show (3-40)
-/free rate <n>     seconds between samples (0.25-10, default 3)
-/free lock         stop the window being dragged
+/free                  Toggle the window, and print this list
+/free toggle           Script profiling, what the CPU columns are made of
+/free memory           Track allocation rate, the KB/s column (default off)
+/free report <count>   Cumulative worst offenders since login, printed to chat
+/free reset            Zero the counters and start a fresh window
+/free rows <count>     How many lines the window shows (3-40)
+/free rate <seconds>   How often the table refreshes (0.25-10, default 3)
+/free lock             Stop the window being dragged
 ```
 
 `/free` on its own toggles the window, and prints this list when it *opens* one
@@ -86,11 +85,11 @@ open** — it's session-wide or nothing.
 
 So it's opt-in. Freeloader asks the first time you open the window in a session
 where profiling is off, and sets nothing unless you accept; decline and nothing
-about your client has changed. `/free on` and `/free off` do the same thing
+about your client has changed. `/free toggle` does the same thing
 deliberately. Profiling costs a few percent CPU for as long as it runs, so the
-honest workflow is: turn it on, reproduce the problem, read the list, `/free
-off`. Absolute milliseconds are inflated while it runs — the *ranking* is what
-to trust.
+honest workflow is: turn it on, reproduce the problem, read the list, then
+`/free toggle` again. Absolute milliseconds are inflated while it runs — the
+*ranking* is what to trust.
 
 Memory and allocation rate don't need it.
 

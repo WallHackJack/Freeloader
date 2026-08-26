@@ -244,7 +244,7 @@ function FL:Report(limit)
     self:Print("Since %s -- %s, %d addons loaded, %.1f%% of one core total.",
         self.sinceLabel, FormatDuration(elapsed), addonCount, sumCPU / (elapsed * 10))
     if not self.profilingActive then
-        self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r Run |cff80c0ff/free on|r.")
+        self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r XX")
     end
 
     limit = math.min(limit or 10, #list)
@@ -307,7 +307,7 @@ StaticPopupDialogs["FREELOADER_RELOAD"] = {
 
 local ASK_ON = "The CPU columns need script profiling, and the client only starts it on a UI reload."
     .. "\n\nTurn it on and reload now?"
-    .. "\n\nIt costs a few percent CPU for the rest of the session, so end it with /free off when you are done."
+    .. "\n\nIt costs a few percent CPU for the rest of the session, so end it with /free toggle when you are done."
 local ASK_OFF = "Script profiling only stops on a UI reload.\n\nReload now?"
 
 local function AskProfiling(on)
@@ -324,6 +324,8 @@ function FL:OfferProfiling()
     self.offered = true
     AskProfiling(true)
 end
+-- TagTeam's palette for these, since the menu format is borrowed from /tag.
+local ON, OFF = "|cff00ff00ON|r", "|cffff2020OFF|r"
 
 -- The tail of the menu block, so these are unstamped and indented like the
 -- option lines above them: the one-line answer to "is this thing on", which is
@@ -331,33 +333,35 @@ end
 local function Status()
     if not FL.profilingActive then
         FL:PrintRaw("  |cffff8080script profiling is off|r - every CPU figure reads zero "
-            .. "until |cffffff00/free on|r and a reload.")
+            .. "until |cffffff00/free toggle|r and a reload.")
     end
-    if not FL.db.memory then
-        FL:PrintRaw("  |cff808080KB/s is off, so that column reads -.|r")
-    end
-    FL:PrintRaw("  |cff808080/freeload and /freeloader do the same as /free.|r")
 end
 
 -- One block: a header that says whose it is, and no name stamped on any line
 -- under it. Printed when /free OPENS the window, not when it closes one --
 -- closing is not a moment anybody wants a wall of chat -- and on any input
 -- that is not a command, typo or not.
+--
+-- No line for bare /free: you just typed it, and a menu whose first entry
+-- explains the thing that printed it is a line nobody has ever needed.
+--
+-- Placeholders name the unit rather than saying <n> three times, because the
+-- one thing a reader wants from an argument they have not used before is what
+-- it is counted in.
 local function Menu()
     FL:PrintRaw("|cff59d0ffFreeloader|r%s |cffffff00Options:|r",
         FL.version and (" |cff808080(v%s)|r"):format(FL.version) or "")
-    FL:PrintRaw("  |cffffff00/free|r - Toggle the window, and print this list")
-    FL:PrintRaw("  |cffffff00/free on|r (or |cffffff00off|r) - Script profiling, what the CPU "
-        .. "columns are made of. Needs a reload")
+    FL:PrintRaw("  |cffffff00/free toggle|r - Script profiling, what the CPU columns are made "
+        .. "of. Needs a reload. Currently %s", FL.profilingActive and ON or OFF)
     FL:PrintRaw("  |cffffff00/free memory|r - Track allocation rate, the KB/s column. Currently %s",
-        FL.db.memory and "|cff00ff00ON|r" or "|cffff2020OFF|r")
-    FL:PrintRaw("  |cffffff00/free report|r |cff808080[n]|r - Cumulative worst offenders since "
-        .. "login, printed here")
+        FL.db.memory and ON or OFF)
+    FL:PrintRaw("  |cffffff00/free report|r |cff808080<count>|r - Cumulative worst offenders "
+        .. "since login, printed here")
     FL:PrintRaw("  |cffffff00/free reset|r - Zero the counters and start a fresh window")
-    FL:PrintRaw("  |cffffff00/free rows|r |cff808080<n>|r - How many lines the window shows (%d-%d)",
-        MIN_ROWS, MAX_ROWS)
-    FL:PrintRaw("  |cffffff00/free rate|r |cff808080<n>|r - Seconds between samples (%.2g-%d), "
-        .. "currently |cff00ff00%.2gs|r", MIN_RATE, MAX_RATE, FL.db.rate)
+    FL:PrintRaw("  |cffffff00/free rows|r |cff808080<count>|r - How many lines the window shows "
+        .. "(%d-%d), currently |cff00ff00%d|r", MIN_ROWS, MAX_ROWS, FL.db.rows)
+    FL:PrintRaw("  |cffffff00/free rate|r |cff808080<seconds>|r - How often the table refreshes "
+        .. "(%.2g-%d), currently |cff00ff00%.2gs|r", MIN_RATE, MAX_RATE, FL.db.rate)
     FL:PrintRaw("  |cffffff00/free lock|r - Stop the window being dragged")
     Status()
 end
@@ -376,14 +380,10 @@ SlashCmdList.FREELOADER = function(input)
         -- Only when it OPENS. Closing a monitor is not a moment anybody wants
         -- ten lines of chat for.
         if FL.UI:Toggle() then Menu() end
-    elseif cmd == "on" or cmd == "off" then
-        local want = (cmd == "on")
-        if want == FL.profilingActive then
-            FL:Print("Script profiling is already %s.",
-                want and "|cff40ff40on|r" or "|cffff6060off|r")
-        else
-            AskProfiling(want)
-        end
+    elseif cmd == "toggle" then
+        -- A toggle always changes something, so there is no "already on" case to
+        -- report the way a separate on and off had to.
+        AskProfiling(not FL.profilingActive)
     elseif cmd == "report" then
         FL:Report(tonumber(arg))
     elseif cmd == "reset" then

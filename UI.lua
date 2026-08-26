@@ -168,10 +168,10 @@ local COLUMN_HELP = {
         title = "CPU",
         status = function()
             if FL.profilingActive then
-                return ("Script profiling is %s. It costs a few percent CPU for as long as it runs, so %s/free off|r when you are done.")
+                return ("Script profiling is %s. It costs a few percent CPU for as long as it runs, so %s/free toggle|r when you are done.")
                     :format(ON, BLUE)
             end
-            return ("Script profiling is %s, so these numbers are zero. %s/free on|r starts it, which needs a reload.")
+            return ("Script profiling is %s, so these numbers are zero. %s/free toggle|r starts it, which needs a reload.")
                 :format(OFF, BLUE)
         end,
         body = {
@@ -469,7 +469,7 @@ function UI:Refresh()
     elseif f.state.value ~= fps or f.state.budget ~= false then
         f.state.value, f.state.budget = fps, false
         f.state:SetText(format(
-            "|cffffffff%d fps|r   |cffff6060CPU is off.|r |cff80c0ff/free on|r |cff909090to enable it|r",
+            "|cffffffff%d fps|r   |cffff6060CPU is off.|r |cff80c0ff/free toggle|r |cff909090to enable it|r",
             fps))
     end
 
