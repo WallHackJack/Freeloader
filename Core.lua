@@ -51,8 +51,6 @@ local defaults = {
     locked  = false,
     shown   = false,
     point   = { "CENTER", "CENTER", 0, 0 },
-    minimap = true,
-    minimapAngle = 200,
     -- Off by default. The scan behind the KB/s column hitches hard enough to be
     -- worse than the problem it is describing, and it does not even bill itself
     -- to Freeloader -- see SetMemory below.
@@ -327,7 +325,6 @@ local function Help()
     FL:Print("  |cff80c0ffrows|r |cff909090n|r -- how many lines the window shows (%d-%d)", MIN_ROWS, MAX_ROWS)
     FL:Print("  |cff80c0ffrate|r |cff909090n|r -- seconds between samples (%.2f-%d)", MIN_RATE, MAX_RATE)
     FL:Print("  |cff80c0fflock|r -- stop the window being dragged")
-    FL:Print("  |cff80c0ffminimap|r -- show or hide the minimap button")
 end
 
 -- Three tokens, longest first as the guaranteed one. Slash registration is
@@ -379,10 +376,6 @@ SlashCmdList.FREELOADER = function(input)
         else
             FL:Print("Allocation tracking |cffff6060off|r. The KB/s column will read |cff909090-|r.")
         end
-    elseif cmd == "minimap" then
-        FL.db.minimap = not FL.db.minimap
-        FL.MinimapButton:Update()
-        FL:Print("Minimap button %s.", FL.db.minimap and "shown" or "hidden")
     else
         Help()
     end
@@ -422,6 +415,5 @@ loader:SetScript("OnEvent", function(self, event, name)
     addonCount = GetNumAddOns()
 
     FL.UI:Init()
-    FL.MinimapButton:Init()
     if FL.db.shown then FL.UI:Show() end
 end)

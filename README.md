@@ -3,7 +3,7 @@
 Which addon isn't paying its way.
 
 A live per-addon CPU and memory readout for World of Warcraft Classic clients
-(built and tested against the 2.5.5 anniversary client). No libraries, two Lua
+(built and tested against the 2.5.6 anniversary client). No libraries, two Lua
 files, and it costs nothing while the window is closed.
 
 ## Why
@@ -63,16 +63,12 @@ faster or slower.
 /free rows <n>     how many lines to show (3-40)
 /free rate <n>     seconds between samples (0.25-10, default 3)
 /free lock         stop the window being dragged
-/free minimap      show or hide the minimap button
 ```
 
 `/freeload` and `/freeloader` are aliases. `/free` is short enough that another
 addon could have claimed it first — slash registration is last-writer-wins with
 no warning — so `/freeloader` is the one to fall back on if `/free` does
 something unexpected.
-
-The minimap button toggles the window on left-click and prints the session
-report on right-click. Drag it around the ring; `/free minimap` hides it.
 
 Escape deliberately does **not** close the window. This is a monitor you leave
 running while you play, and Escape is a key you hit for a hundred other reasons.
@@ -96,10 +92,13 @@ Memory and allocation rate don't need it.
 
 ## What it costs when you're not using it
 
-Nothing, by construction. With the window closed there is no `OnUpdate`, no
-timer and no event registered beyond the one that loads saved variables — hidden
-frames don't tick, so no sampling and no repainting happens. With profiling off
-as well, Freeloader is inert until you type `/free`.
+Nothing, by construction. With the window closed there is no `OnUpdate` and no
+timer — hidden frames don't tick, so nothing samples and nothing repaints. The
+two load-time events unregister themselves as soon as they have fired. With
+profiling off as well, Freeloader is inert until you type `/free`.
+
+There is no minimap button and no LDB plugin, for the same reason: both would
+mean something of Freeloader's running while you aren't using it.
 
 ## Caveats worth knowing
 

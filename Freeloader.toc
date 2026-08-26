@@ -1,10 +1,12 @@
 ## Interface: 20506, 11509
-## Title: Freeloader
+## Title: Freeloader |cff80c0ff/free|r
 ## Notes: Which addon isn't paying its way. Live CPU and memory per addon.
 ## Author: Wallhackjack
 ## Version: 0.1.0
+## Category: Development Tools
+## Category-enUS: Development Tools
+## IconTexture: Interface\Icons\INV_Misc_Coin_02
 ## SavedVariables: FreeloaderDB
 
 Core.lua
 UI.lua
-Minimap.lua
