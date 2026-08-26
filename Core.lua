@@ -362,7 +362,8 @@ local function Menu()
         .. "(%d-%d), currently |cff00ff00%d|r", MIN_ROWS, MAX_ROWS, FL.db.rows)
     FL:PrintRaw("  |cffffff00/free rate|r |cff808080<seconds>|r - How often the table refreshes "
         .. "(%.2g-%d), currently |cff00ff00%.2gs|r", MIN_RATE, MAX_RATE, FL.db.rate)
-    FL:PrintRaw("  |cffffff00/free lock|r - Stop the window being dragged")
+    FL:PrintRaw("  |cffffff00/free lock|r - Stop the window being dragged. Currently %s",
+        FL.db.locked and ON or OFF)
     Status()
 end
 
