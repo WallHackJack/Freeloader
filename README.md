@@ -1,55 +1,16 @@
 # Freeloader
 
-Which addon isn't paying its way.
+Which addon isn't paying its way?
 
-A live per-addon CPU and memory readout for World of Warcraft Classic clients
-(built and tested against the 2.5.6 anniversary client). No libraries, two Lua
-files, and it costs nothing while the window is closed.
+Shows CPU and memory usage from other addons in a single persistent GUI window.
 
-## Why
+No libraries, Super Minimal, costs nothing until opened!
 
-The usual advice — "check addon memory in the AddOns list" — measures the wrong
-thing. An addon sitting on 8 MB costs nothing to sit there. What actually turns
-into a framerate drop is:
+Built and tested against the 2.5.6 anniversary client.
 
-- **ms/frame.** At 60 fps you have 16.7 ms per frame. An addon burning 2 ms of
-  that is eating 12% of your budget, every frame, forever.
-- **KB/s allocated.** Allocation *rate* is what feeds the garbage collector, and
-  the collector is what stutters. Total memory held says nothing about it.
+Just a little thing Claude built for me, there are likely better options out there, but this one works fine!
 
-Freeloader shows both, sorted worst-first, on a 3 second window.
-
-## Reading the columns
-
-Hover any column header in-game for the same explanation, or the **All addons**
-totals row for the session figures. The addon rows themselves take no mouse
-input — every mouse-enabled frame is a region the client hit-tests as the cursor
-crosses the window, and their tooltips only repeated what the columns showed.
-
-| Column | What it is |
-| --- | --- |
-| **CPU** | Share of one CPU core spent running that addon's Lua, averaged over the sample window. Good for ranking; says nothing about whether the cost is one ugly spike or spread evenly. |
-| **ms/f** | Milliseconds of Lua per rendered frame. At 60 fps the entire frame is 16.7 ms, shared with the game world and everything else. An addon at 2.00 is taking 12% of that away from drawing. This is the column that becomes a framerate drop. |
-| **KB/s** | Kilobytes of Lua memory *allocated* per second — new tables, strings, closures. **Not** memory held: an addon can sit on 20 MB at 0 KB/s and cost you nothing. Allocation is what feeds the garbage collector, and a collection pass is a frame that doesn't get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it. Sampled every third tick — see below. |
-
-**KB/s is off by default** — `/free memory` turns it on, and the column reads
-`-` until you do. `UpdateAddOnMemoryUsage` walks every addon's memory
-attribution and is a well-known source of a periodic hitch, big enough to be
-worse than most of what it would tell you about. Worse, it's a C call, so the
-script profiler bills its cost to nobody — not even to Freeloader. An addon
-that can't account for its own cost has no business running that cost by
-default.
-
-When it is on, the scan runs on every third sample rather than every one, so
-KB/s updates about every 9 seconds at the default rate while the CPU columns
-stay live. Turn it on when you're actually hunting a stutter, and back off when
-you're done. With script profiling off, the CPU half of the sample loop is
-skipped entirely too.
-
-The sample window is 3 seconds by default rather than 1. A one-second window is
-both hard to read and noisy — a single GC pass or stray event lands entirely
-inside it and throws that row to the top. `/free rate <seconds>` if you want it
-faster or slower.
+Not sure if I'll be maintaining this one, but feel free to reach out to @wallhackjack on discord. 
 
 ## Usage
 
@@ -64,45 +25,6 @@ faster or slower.
 /free lock             Stop the window being dragged
 ```
 
-`/free` on its own toggles the window, and prints this list when it *opens* one
-— closing a monitor is not a moment anyone wants ten lines of chat for. Any
-input that is not a command prints it too.
-
-`/freeload` and `/freeloader` are aliases. `/free` is short enough that another
-addon could have claimed it first — slash registration is last-writer-wins with
-no warning — so `/freeloader` is the one to fall back on if `/free` does
-something unexpected.
-
-Escape deliberately does **not** close the window. This is a monitor you leave
-running while you play, and Escape is a key you hit for a hundred other reasons.
-Use the close button or `/free`.
-
-## Script profiling
-
-CPU numbers only exist when the `scriptProfile` CVar is on, and the client only
-applies that CVar on a UI reload. **It cannot be scoped to the window being
-open** — it's session-wide or nothing.
-
-So it's opt-in. Freeloader asks the first time you open the window in a session
-where profiling is off, and sets nothing unless you accept; decline and nothing
-about your client has changed. `/free toggle` does the same thing
-deliberately. Profiling costs a few percent CPU for as long as it runs, so the
-honest workflow is: turn it on, reproduce the problem, read the list, then
-`/free toggle` again. Absolute milliseconds are inflated while it runs — the
-*ranking* is what to trust.
-
-Memory and allocation rate don't need it.
-
-## What it costs when you're not using it
-
-Nothing, by construction. With the window closed there is no `OnUpdate` and no
-timer — hidden frames don't tick, so nothing samples and nothing repaints. The
-two load-time events unregister themselves as soon as they have fired. With
-profiling off as well, Freeloader is inert until you type `/free`.
-
-There is no minimap button and no LDB plugin, for the same reason: both would
-mean something of Freeloader's running while you aren't using it.
-
 ## Caveats worth knowing
 
 - **Attribution is per-owning-file.** An addon that hooks or calls into another
@@ -116,5 +38,4 @@ mean something of Freeloader's running while you aren't using it.
   `OnUpdate`. `/free report` still works — it reads cumulative counters.
 
 ## License
-
 Do what you like with it.
