@@ -351,8 +351,8 @@ end
 local function Menu()
     FL:PrintRaw("|cff59d0ffFreeloader|r%s |cffffff00Options:|r",
         FL.version and (" |cff808080(v%s)|r"):format(FL.version) or "")
-    FL:PrintRaw("  |cffffff00/free toggle|r - Script profiling, what the CPU columns are made "
-        .. "of. Needs a reload. Currently %s", FL.profilingActive and ON or OFF)
+    FL:PrintRaw("  |cffffff00/free toggle|r - Toggle Script profiling, the WoW setting that "
+        .. "powers Freeloader. Currently %s", FL.profilingActive and ON or OFF)
     FL:PrintRaw("  |cffffff00/free memory|r - Track allocation rate, the KB/s column. Currently %s",
         FL.db.memory and ON or OFF)
     FL:PrintRaw("  |cffffff00/free report|r |cff808080<count>|r - Cumulative worst offenders "

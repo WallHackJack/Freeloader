@@ -55,7 +55,7 @@ faster or slower.
 
 ```
 /free                  Toggle the window, and print this list
-/free toggle           Script profiling, what the CPU columns are made of
+/free toggle           Toggle script profiling, the WoW setting that powers Freeloader
 /free memory           Track allocation rate, the KB/s column (default off)
 /free report <count>   Cumulative worst offenders since login, printed to chat
 /free reset            Zero the counters and start a fresh window
