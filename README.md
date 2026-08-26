@@ -65,6 +65,10 @@ faster or slower.
 /free lock         stop the window being dragged
 ```
 
+`/free` on its own toggles the window, and prints this list when it *opens* one
+— closing a monitor is not a moment anyone wants ten lines of chat for. Any
+input that is not a command prints it too.
+
 `/freeload` and `/freeloader` are aliases. `/free` is short enough that another
 addon could have claimed it first — slash registration is last-writer-wins with
 no warning — so `/freeloader` is the one to fall back on if `/free` does

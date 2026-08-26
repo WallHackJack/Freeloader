@@ -480,6 +480,13 @@ end
 
 function UI:Show()   self.frame:Show() end
 function UI:Hide()   self.frame:Hide() end
+-- Returns true when it OPENED the window, which is what tells the slash
+-- command whether this was a moment to print the menu.
 function UI:Toggle()
-    if self.frame:IsShown() then self:Hide() else self:Show() end
+    if self.frame:IsShown() then
+        self:Hide()
+        return false
+    end
+    self:Show()
+    return true
 end

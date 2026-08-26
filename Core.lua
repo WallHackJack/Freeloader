@@ -30,6 +30,7 @@ local UpdateAddOnMemoryUsage = C_AddOns and C_AddOns.UpdateAddOnMemoryUsage or U
 local ResetCPUUsage          = C_AddOns and C_AddOns.ResetCPUUsage          or ResetCPUUsage
 local GetCVar                = C_CVar   and C_CVar.GetCVar                  or GetCVar
 local SetCVar                = C_CVar   and C_CVar.SetCVar                  or SetCVar
+local GetAddOnMetadata       = C_AddOns and C_AddOns.GetAddOnMetadata       or GetAddOnMetadata
 
 -- Floors are set by what the columns can actually PRINT, so a row survives
 -- only if at least one of its three numbers renders as something other than
@@ -88,6 +89,14 @@ FL.profilingActive = (GetCVar("scriptProfile") == "1")
 function FL:Print(fmt, ...)
     local msg = select("#", ...) > 0 and fmt:format(...) or fmt
     DEFAULT_CHAT_FRAME:AddMessage("|cff59d0ffFreeloader|r  " .. msg)
+end
+
+-- The same line without the name in front of it, for a block that has already
+-- said whose it is. The menu prints one header and then its options, and
+-- stamping every one of those buries the content behind the same word ten
+-- times over.
+function FL:PrintRaw(fmt, ...)
+    DEFAULT_CHAT_FRAME:AddMessage(select("#", ...) > 0 and fmt:format(...) or fmt)
 end
 
 ----------------------------------------------------------------------
@@ -316,15 +325,41 @@ function FL:OfferProfiling()
     AskProfiling(true)
 end
 
-local function Help()
-    FL:Print("|cff80c0ff/free|r toggles the window |cff909090(/freeload and /freeloader work too)|r. Also:")
-    FL:Print("  |cff80c0ffon|r / |cff80c0ffoff|r -- script profiling, what makes the CPU columns exist (needs a reload)")
-    FL:Print("  |cff80c0ffmemory|r -- the KB/s column, off by default because the scan behind it hitches")
-    FL:Print("  |cff80c0ffreport|r |cff909090[n]|r -- cumulative worst offenders since login, printed here")
-    FL:Print("  |cff80c0ffreset|r -- zero the counters and start a fresh window")
-    FL:Print("  |cff80c0ffrows|r |cff909090n|r -- how many lines the window shows (%d-%d)", MIN_ROWS, MAX_ROWS)
-    FL:Print("  |cff80c0ffrate|r |cff909090n|r -- seconds between samples (%.2f-%d)", MIN_RATE, MAX_RATE)
-    FL:Print("  |cff80c0fflock|r -- stop the window being dragged")
+-- The tail of the menu block, so these are unstamped and indented like the
+-- option lines above them: the one-line answer to "is this thing on", which is
+-- the part chat is still better at than the window.
+local function Status()
+    if not FL.profilingActive then
+        FL:PrintRaw("  |cffff8080script profiling is off|r - every CPU figure reads zero "
+            .. "until |cffffff00/free on|r and a reload.")
+    end
+    if not FL.db.memory then
+        FL:PrintRaw("  |cff808080KB/s is off, so that column reads -.|r")
+    end
+    FL:PrintRaw("  |cff808080/freeload and /freeloader do the same as /free.|r")
+end
+
+-- One block: a header that says whose it is, and no name stamped on any line
+-- under it. Printed when /free OPENS the window, not when it closes one --
+-- closing is not a moment anybody wants a wall of chat -- and on any input
+-- that is not a command, typo or not.
+local function Menu()
+    FL:PrintRaw("|cff59d0ffFreeloader|r%s |cffffff00Options:|r",
+        FL.version and (" |cff808080(v%s)|r"):format(FL.version) or "")
+    FL:PrintRaw("  |cffffff00/free|r - Toggle the window, and print this list")
+    FL:PrintRaw("  |cffffff00/free on|r (or |cffffff00off|r) - Script profiling, what the CPU "
+        .. "columns are made of. Needs a reload")
+    FL:PrintRaw("  |cffffff00/free memory|r - Track allocation rate, the KB/s column. Currently %s",
+        FL.db.memory and "|cff00ff00ON|r" or "|cffff2020OFF|r")
+    FL:PrintRaw("  |cffffff00/free report|r |cff808080[n]|r - Cumulative worst offenders since "
+        .. "login, printed here")
+    FL:PrintRaw("  |cffffff00/free reset|r - Zero the counters and start a fresh window")
+    FL:PrintRaw("  |cffffff00/free rows|r |cff808080<n>|r - How many lines the window shows (%d-%d)",
+        MIN_ROWS, MAX_ROWS)
+    FL:PrintRaw("  |cffffff00/free rate|r |cff808080<n>|r - Seconds between samples (%.2g-%d), "
+        .. "currently |cff00ff00%.2gs|r", MIN_RATE, MAX_RATE, FL.db.rate)
+    FL:PrintRaw("  |cffffff00/free lock|r - Stop the window being dragged")
+    Status()
 end
 
 -- Three tokens, longest first as the guaranteed one. Slash registration is
@@ -338,7 +373,9 @@ SlashCmdList.FREELOADER = function(input)
     local cmd, arg = input:lower():match("^%s*(%S*)%s*(.-)%s*$")
 
     if cmd == "" then
-        FL.UI:Toggle()
+        -- Only when it OPENS. Closing a monitor is not a moment anybody wants
+        -- ten lines of chat for.
+        if FL.UI:Toggle() then Menu() end
     elseif cmd == "on" or cmd == "off" then
         local want = (cmd == "on")
         if want == FL.profilingActive then
@@ -377,7 +414,7 @@ SlashCmdList.FREELOADER = function(input)
             FL:Print("Allocation tracking |cffff6060off|r. The KB/s column will read |cff909090-|r.")
         end
     else
-        Help()
+        Menu()
     end
 end
 
@@ -410,6 +447,9 @@ loader:SetScript("OnEvent", function(self, event, name)
     end
     FL.db = FreeloaderDB
     FL.since, FL.sinceLabel = GetTime(), "login"
+    -- Read from the TOC so the packager's @project-version@ substitution is the
+    -- single source of it once this ships.
+    FL.version = GetAddOnMetadata(ADDON, "Version")
     -- The addon list is fixed for the session, so this is read once instead of
     -- on every tick of the sample loop.
     addonCount = GetNumAddOns()
