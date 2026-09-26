@@ -6,7 +6,7 @@
 #@debug@
 # Keep this literal synchronized with the release tag. It is what the live
 # checkout shows, and the /free menu header reads it through GetAddOnMetadata.
-## Version: 0.1.0
+## Version: 1.0.0
 #@end-debug@
 ## Category: Development Tools
 ## Category-enUS: Development Tools
