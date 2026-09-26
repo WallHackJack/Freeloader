@@ -8,14 +8,13 @@ No libraries, Super Minimal, costs nothing until opened!
 
 Built and tested against the 2.5.6 anniversary client.
 
-Just a little thing Claude built for me, there are likely better options out there, but this one works fine!
-
-Not sure if I'll be maintaining this one, but feel free to reach out to @wallhackjack on discord. 
+Just a little thing Claude built for me, there are likely better options out there, but this one works fine! I'm not sure if I'll be maintaining this one, but feel free to reach out to @wallhackjack on discord. 
 
 ## Usage
 
 ```
 /free                  Toggle the window, and print this list
+/free profiler         Forever only: read CPU from the built-in addon profiler (default on, no reload)
 /free toggle           Toggle script profiling, the WoW setting that powers Freeloader
 /free memory           Track allocation rate, the KB/s column (default off)
 /free report <count>   Cumulative worst offenders since login, printed to chat

@@ -32,6 +32,38 @@ local GetCVar                = C_CVar   and C_CVar.GetCVar                  or G
 local SetCVar                = C_CVar   and C_CVar.SetCVar                  or SetCVar
 local GetAddOnMetadata       = C_AddOns and C_AddOns.GetAddOnMetadata       or GetAddOnMetadata
 
+-- Retail-engine clients, Forever included, also carry the addon profiler the
+-- default AddOn list reads from. It is always running, so it needs no reload
+-- and adds no script profiling cost. Absent on anniversary and Era, where
+-- scriptProfile is the only CPU source there is.
+local Profiler = C_AddOnProfiler
+local METRIC   = Enum and Enum.AddOnProfilerMetric
+FL.hasProfiler = (Profiler and Profiler.GetAddOnMetric and METRIC) and true or false
+
+-- The profiler has no "worst frame lately", only running counts of frames an
+-- addon spent over each of these. The highest one that climbed since the last
+-- sample bounds that window's worst frame from below, which is the peak column.
+-- Ascending, and only the ones this client actually has.
+local SPIKE_BANDS = {}
+if METRIC then
+    for _, ms in ipairs({ 1, 5, 10, 50, 100, 500, 1000 }) do
+        local metric = METRIC["CountTimeOver" .. ms .. "Ms"]
+        if metric then SPIKE_BANDS[#SPIKE_BANDS + 1] = { ms = ms, metric = metric } end
+    end
+end
+local NBANDS = #SPIKE_BANDS
+FL.hasPeak = FL.hasProfiler and NBANDS > 0
+
+-- How long a peak stays on screen. Independent of /free rate on purpose: a
+-- spike is one frame, and at a 3 s refresh it would be gone before you found
+-- the row. A bigger one replaces it at once; a smaller one waits this out.
+FL.PEAK_HOLD = 10
+
+-- The report's session count. 5 ms is 30% of a 60 fps frame from one addon,
+-- which is a hitch you can feel.
+FL.SPIKE_MS = 5
+local SPIKE_METRIC = METRIC and METRIC.CountTimeOver5Ms
+
 -- Floors are set by what the columns can actually PRINT, so a row survives
 -- only if at least one of its three numbers renders as something other than
 -- zero. Anything below all three would occupy a line to say "0.0  0.00  0",
@@ -56,6 +88,9 @@ local defaults = {
     -- worse than the problem it is describing, and it does not even bill itself
     -- to Freeloader -- see SetMemory below.
     memory  = false,
+    -- Only read where FL.hasProfiler is true, so on by default means on by
+    -- default for Forever and nowhere else.
+    profiler = true,
 }
 
 -- UpdateAddOnMemoryUsage walks every addon's memory attribution and is by a
@@ -73,18 +108,36 @@ local churnRate = {}
 -- Index -> reusable row table. A profiler that allocates a fresh table per
 -- addon per second would show up in its own KB/s column, which is funny once.
 local pool = {}
+-- Index -> addon name, read once at load. The profiler is keyed by name where
+-- the legacy getters take an index.
+local names = {}
+-- (index - 1) * NBANDS + band -> that band's count at the last sample.
+local prevSpike = {}
+-- Index -> the peak on show, in ms, and the GetTime() it was set.
+local heldPeak, heldAt = {}, {}
 
 local addonCount = 0
 local frames, lastSample, baselined = 0, 0, false
 local lastMem, ticksSinceMem, totalChurn = 0, 0, 0
 
 FL.rows  = {}
-FL.total = { cpu = 0, msf = 0, churn = 0, fps = 0, window = 0 }
+FL.total = { cpu = 0, msf = 0, churn = 0, peak = 0, fps = 0, window = 0 }
 
 -- Read at load, before anything can change it: the CVar reflects what the
 -- NEXT session will do, and only this snapshot says whether the profiler is
 -- actually running right now.
 FL.profilingActive = (GetCVar("scriptProfile") == "1")
+
+-- The client can switch its profiler off (addonProfilerEnabled), so this asks
+-- every time rather than trusting the setting alone.
+function FL:UsingProfiler()
+    return self.hasProfiler and self.db.profiler and Profiler.IsEnabled() and true or false
+end
+
+-- Whether the CPU columns have a source at all, from either system.
+function FL:CPUOn()
+    return self:UsingProfiler() or self.profilingActive
+end
 
 function FL:Print(fmt, ...)
     local msg = select("#", ...) > 0 and fmt:format(...) or fmt
@@ -102,6 +155,26 @@ end
 ----------------------------------------------------------------------
 -- Sampling
 ----------------------------------------------------------------------
+
+-- The highest band whose count rose since the last call, in ms, or 0. A frame
+-- over 50 ms was also over 10, 5 and 1, so the bands can only rise from the
+-- bottom up: the walk stops at the first that held still, and an addon with
+-- no spikes at all costs one call. The baseline pass reads every band, since
+-- the ones above a stop are otherwise never read until they first move.
+local function WorstBand(i, baseline)
+    local name, base, worst = names[i], (i - 1) * NBANDS, 0
+    for b = 1, NBANDS do
+        local n = Profiler.GetAddOnMetric(name, SPIKE_BANDS[b].metric) or 0
+        local rose = n > (prevSpike[base + b] or n)
+        prevSpike[base + b] = n
+        if rose then
+            worst = SPIKE_BANDS[b].ms
+        elseif not baseline then
+            break
+        end
+    end
+    return worst
+end
 
 local function SortRows(a, b)
     -- Falls through to allocation rate when CPU ties, which is every row when
@@ -121,17 +194,24 @@ end
 function FL:Sample()
     local now = GetTime()
     -- With profiling off every CPU getter returns zero, so the whole CPU half
-    -- of this function is a walk over the addon list to collect nothing.
-    local profiling = self.profilingActive
+    -- of this function is a walk over the addon list to collect nothing. The
+    -- profiler reads averages rather than counters, so it needs no baseline
+    -- and the legacy half stays off while it is in charge.
+    local profiler = self:UsingProfiler()
+    local profiling = not profiler and self.profilingActive
 
     local memory = self.db.memory
 
     if not baselined then
         if profiling then UpdateAddOnCPUUsage() end
         if memory then UpdateAddOnMemoryUsage() end
+        local peaks = profiler and self.hasPeak
+        wipe(heldPeak)
+        wipe(heldAt)
         for i = 1, addonCount do
             prevCPU[i] = profiling and GetAddOnCPUUsage(i) or 0
             prevMem[i] = memory and GetAddOnMemoryUsage(i) or 0
+            if peaks then WorstBand(i, true) end
         end
         wipe(churnRate)
         totalChurn, ticksSinceMem = 0, 0
@@ -149,14 +229,32 @@ function FL:Sample()
 
     local rows, total = self.rows, self.total
     wipe(rows)
-    total.cpu, total.msf = 0, 0
+    total.cpu, total.msf, total.peak = 0, 0, 0
+    local peaks = profiler and self.hasPeak
     total.window, total.frames = window, frames
     total.fps = frames / window
 
     local sumChurn = 0
     for i = 1, addonCount do
-        local pct, msf = 0, 0
-        if profiling then
+        local pct, msf, peak = 0, 0, 0
+        if profiler then
+            -- Already ms per frame, averaged over the profiler's own recent
+            -- window rather than ours. Share of a core is that times our
+            -- measured fps: ms per second, / 1000 * 100.
+            msf = Profiler.GetAddOnMetric(names[i], METRIC.RecentAverageTime) or 0
+            pct = msf * total.fps / 10
+            total.cpu, total.msf = total.cpu + pct, total.msf + msf
+            if peaks then
+                peak = WorstBand(i)
+                local held = heldPeak[i] or 0
+                if peak >= held or now - heldAt[i] >= self.PEAK_HOLD then
+                    heldPeak[i], heldAt[i] = peak, now
+                else
+                    peak = held
+                end
+                if peak > total.peak then total.peak = peak end
+            end
+        elseif profiling then
             local cpu = GetAddOnCPUUsage(i)
             local dcpu = cpu - (prevCPU[i] or cpu)
             prevCPU[i] = cpu
@@ -180,11 +278,11 @@ function FL:Sample()
         end
 
         local kbs = churnRate[i] or 0
-        if pct >= CPU_FLOOR or msf >= MSF_FLOOR or kbs >= CHURN_FLOOR then
+        if pct >= CPU_FLOOR or msf >= MSF_FLOOR or kbs >= CHURN_FLOOR or peak > 0 then
             local r = pool[i]
             if not r then r = {}; pool[i] = r end
-            r.name = r.name or (GetAddOnInfo(i)) or ("addon " .. i)
-            r.pct, r.msf, r.churn = pct, msf, kbs
+            r.name = names[i]
+            r.pct, r.msf, r.churn, r.peak = pct, msf, kbs, peak
             rows[#rows + 1] = r
         end
     end
@@ -220,7 +318,10 @@ end
 -- other question -- "what has cost me the most all session" -- which is the
 -- one you want after a raid, and the one you can paste into a chat channel.
 function FL:Report(limit)
-    UpdateAddOnCPUUsage()
+    -- With the profiler, cpu is its session average in ms/f; otherwise it is
+    -- the legacy cumulative ms. Both rank the same way, only the print differs.
+    local profiler = self:UsingProfiler()
+    if not profiler and self.profilingActive then UpdateAddOnCPUUsage() end
     -- Respects the memory toggle rather than sneaking the expensive scan in
     -- behind a command that reads like it only prints what is already known.
     local memory = self.db.memory
@@ -229,11 +330,17 @@ function FL:Report(limit)
     local elapsed = math.max(GetTime() - self.since, 0.001)
     local list, sumCPU = {}, 0
     for i = 1, addonCount do
-        local cpu = GetAddOnCPUUsage(i)
+        local cpu
+        if profiler then
+            cpu = Profiler.GetAddOnMetric(names[i], METRIC.SessionAverageTime) or 0
+        else
+            cpu = self.profilingActive and GetAddOnCPUUsage(i) or 0
+        end
         local mem = memory and GetAddOnMemoryUsage(i) or 0
+        local spikes = profiler and SPIKE_METRIC and Profiler.GetAddOnMetric(names[i], SPIKE_METRIC) or 0
         sumCPU = sumCPU + cpu
         if cpu > 0 or mem > 16 then
-            list[#list + 1] = { name = (GetAddOnInfo(i)), cpu = cpu, mem = mem }
+            list[#list + 1] = { name = names[i], cpu = cpu, mem = mem, spikes = spikes }
         end
     end
     table.sort(list, function(a, b)
@@ -241,10 +348,17 @@ function FL:Report(limit)
         return a.cpu > b.cpu
     end)
 
-    self:Print("Since %s -- %s, %d addons loaded, %.1f%% of one core total.",
-        self.sinceLabel, FormatDuration(elapsed), addonCount, sumCPU / (elapsed * 10))
-    if not self.profilingActive then
-        self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r XX")
+    -- The profiler's session cannot be reset from here, so its header names the
+    -- session rather than our since-login-or-reset marker.
+    if profiler then
+        self:Print("Session averages from the addon profiler -- %d addons loaded, %.2f ms/f total.",
+            addonCount, sumCPU)
+    else
+        self:Print("Since %s -- %s, %d addons loaded, %.1f%% of one core total.",
+            self.sinceLabel, FormatDuration(elapsed), addonCount, sumCPU / (elapsed * 10))
+        if not self.profilingActive then
+            self:Print("|cffff6060Script profiling is off, so every CPU figure below is zero.|r")
+        end
     end
 
     limit = math.min(limit or 10, #list)
@@ -255,8 +369,15 @@ function FL:Report(limit)
             mem = e.mem >= 1024 and (", %.1f MB"):format(e.mem / 1024)
                                  or (", %.0f KB"):format(e.mem)
         end
-        self:Print("  %d. %s -- |cffffd000%.0f ms|r (%.1f%%)%s",
-            i, e.name, e.cpu, e.cpu / (elapsed * 10), mem)
+        if profiler then
+            local spikes = e.spikes > 0
+                and (", |cffff6060%d spikes over %d ms|r"):format(e.spikes, self.SPIKE_MS) or ""
+            self:Print("  %d. %s -- |cffffd000%.2f ms/f|r (%.0f%% of addon time)%s%s",
+                i, e.name, e.cpu, sumCPU > 0 and e.cpu / sumCPU * 100 or 0, spikes, mem)
+        else
+            self:Print("  %d. %s -- |cffffd000%.0f ms|r (%.1f%%)%s",
+                i, e.name, e.cpu, e.cpu / (elapsed * 10), mem)
+        end
     end
     if #list > limit then
         self:Print("  |cff909090... and %d more. /free report %d for a longer list.|r", #list - limit, #list)
@@ -272,6 +393,11 @@ function FL:SetMemory(on)
     self.db.memory = on and true or false
     wipe(churnRate)
     totalChurn = 0
+    self:Rebase()
+end
+
+function FL:SetProfiler(on)
+    self.db.profiler = on and true or false
     self:Rebase()
 end
 
@@ -320,7 +446,7 @@ end
 -- have said you want CPU numbers. Once per session: a prompt that returns every
 -- time you open a monitor is a prompt you learn to dismiss without reading.
 function FL:OfferProfiling()
-    if self.profilingActive or self.offered or not self.ready then return end
+    if self:CPUOn() or self.offered or not self.ready then return end
     self.offered = true
     AskProfiling(true)
 end
@@ -331,7 +457,17 @@ local ON, OFF = "|cff00ff00ON|r", "|cffff2020OFF|r"
 -- option lines above them: the one-line answer to "is this thing on", which is
 -- the part chat is still better at than the window.
 local function Status()
-    if not FL.profilingActive then
+    if FL:UsingProfiler() then
+        -- Both on is the one state worth a nudge: the profiler already covers
+        -- the CPU columns, so script profiling is pure cost.
+        if FL.profilingActive then
+            FL:PrintRaw("  |cffff8080script profiling is also on|r and no longer needed - "
+                .. "|cffffff00/free toggle|r ends it.")
+        end
+    elseif FL.hasProfiler and not FL.profilingActive then
+        FL:PrintRaw("  |cffff8080CPU is off|r - every CPU figure reads zero until "
+            .. "|cffffff00/free profiler|r, which needs no reload.")
+    elseif not FL.profilingActive then
         FL:PrintRaw("  |cffff8080script profiling is off|r - every CPU figure reads zero "
             .. "until |cffffff00/free toggle|r and a reload.")
     end
@@ -351,6 +487,10 @@ end
 local function Menu()
     FL:PrintRaw("|cff59d0ffFreeloader|r%s |cffffff00Options:|r",
         FL.version and (" |cff808080(v%s)|r"):format(FL.version) or "")
+    if FL.hasProfiler then
+        FL:PrintRaw("  |cffffff00/free profiler|r - Read CPU from the client's built-in addon "
+            .. "profiler: always on, no reload. Currently %s", FL:UsingProfiler() and ON or OFF)
+    end
     FL:PrintRaw("  |cffffff00/free toggle|r - Toggle Script profiling, the WoW setting that "
         .. "powers Freeloader. Currently %s", FL.profilingActive and ON or OFF)
     FL:PrintRaw("  |cffffff00/free memory|r - Track allocation rate, the KB/s column. Currently %s",
@@ -385,11 +525,28 @@ SlashCmdList.FREELOADER = function(input)
         -- A toggle always changes something, so there is no "already on" case to
         -- report the way a separate on and off had to.
         AskProfiling(not FL.profilingActive)
+    elseif cmd == "profiler" then
+        if not FL.hasProfiler then
+            return FL:Print("This client has no built-in addon profiler. "
+                .. "|cffffff00/free toggle|r is the CPU source here.")
+        end
+        FL:SetProfiler(not FL.db.profiler)
+        if FL:UsingProfiler() then
+            FL:Print("CPU from the built-in addon profiler |cff40ff40on|r.")
+        elseif FL.db.profiler then
+            FL:Print("Profiler selected, but the client has it switched off, so CPU falls "
+                .. "back to script profiling.")
+        else
+            FL:Print("Built-in profiler |cffff6060off|r. CPU now comes from script profiling%s",
+                FL.profilingActive and "." or ", which is off -- |cffffff00/free toggle|r to start it.")
+        end
     elseif cmd == "report" then
         FL:Report(tonumber(arg))
     elseif cmd == "reset" then
         FL:Reset()
-        FL:Print("Counters cleared.")
+        FL:Print(FL:UsingProfiler()
+            and "Window cleared. The profiler's session averages in /free report cannot be reset."
+            or "Counters cleared.")
     elseif cmd == "rows" then
         local n = tonumber(arg)
         if not n then return FL:Print("Usage: /free rows <%d-%d>", MIN_ROWS, MAX_ROWS) end
@@ -454,6 +611,9 @@ loader:SetScript("OnEvent", function(self, event, name)
     -- The addon list is fixed for the session, so this is read once instead of
     -- on every tick of the sample loop.
     addonCount = GetNumAddOns()
+    for i = 1, addonCount do
+        names[i] = (GetAddOnInfo(i)) or ("addon " .. i)
+    end
 
     FL.UI:Init()
     if FL.db.shown then FL.UI:Show() end

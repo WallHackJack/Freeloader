@@ -10,7 +10,11 @@ FL.UI = UI
 local PAD, ROW_H = 10, 13
 local COL_NAME, COL_CPU, COL_MSF, COL_KBS = 0, 150, 206, 262
 local W_NAME, W_CPU, W_MSF, W_KBS = 148, 52, 52, 58
-local CONTENT_W = 320
+-- The peak column exists only where the addon profiler does, and widens the
+-- window to make room rather than squeezing the four columns every client has.
+local COL_PEAK, W_PEAK = 322, 44
+local HAS_PEAK = FL.hasPeak
+local CONTENT_W = HAS_PEAK and COL_PEAK + W_PEAK or 320
 local FRAME_W = CONTENT_W + PAD * 2
 local FRAME_MS = 16.67 -- one frame at 60 fps
 
@@ -89,6 +93,24 @@ local function Churn(fs, kb, tracking)
     fs:SetText(tracking and ChurnCell(kb) or DASH)
 end
 
+-- A floor, not a reading: the profiler only says which thresholds a frame
+-- crossed, so ">50" is all it can honestly print. Blank for a quiet window,
+-- and dashed when the profiler is not the CPU source, for the same reason as
+-- the KB/s cell -- script profiling has no such figure, and a blank would
+-- claim the window was quiet.
+local function PeakText(ms)
+    if ms >= 50 then return format("|cffff5959>%d|r", ms) end
+    if ms >= 10 then return format("|cffffd000>%d|r", ms) end
+    return format(">%d", ms)
+end
+
+local function Peak(fs, ms, on)
+    local key = on and ms or false
+    if fs.value == key then return end
+    fs.value = key
+    fs:SetText(not on and DASH or ms == 0 and "" or PeakText(ms))
+end
+
 local function Band(fs, band)
     if fs.band == band then return end
     fs.band = band
@@ -161,12 +183,16 @@ local COLUMN_HELP = {
         title = "Addon",
         body = {
             "Every addon the client has loaded, worst first, including Freeloader itself.",
-            "An addon only gets a row if at least one of its three columns has a non-zero number to show. The totals row still counts everything, including the addons too quiet to list.",
+            "An addon only gets a row if at least one of its columns has a non-zero number to show. The totals row still counts everything, including the addons too quiet to list.",
         },
     },
     [COL_CPU] = {
         title = "CPU",
         status = function()
+            if FL:UsingProfiler() then
+                return ("Read from the client's built-in addon profiler, which is always running and costs nothing extra. It averages over its own recent window, not the refresh rate below. %s/free profiler|r switches to script profiling.")
+                    :format(BLUE)
+            end
             if FL.profilingActive then
                 return ("Script profiling is %s. It costs a few percent CPU for as long as it runs, so %s/free toggle|r when you are done.")
                     :format(ON, BLUE)
@@ -198,6 +224,19 @@ local COLUMN_HELP = {
             "This is not memory it is holding. An addon can sit on 20 MB at 0 KB/s and cost you nothing.",
             "Allocation is what feeds the garbage collector, and a collection pass is a frame that does not get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it.",
             "Off by default, and shown as a dash rather than a zero when off. The scan behind it hitches, and because it is a C call the client bills that hitch to nobody -- not even to Freeloader.",
+        },
+    },
+    [COL_PEAK] = {
+        title = "Peak -- worst single frame, in ms",
+        status = function()
+            if FL:UsingProfiler() then return nil end
+            return ("Only the built-in addon profiler measures this, and it is %s. %s/free profiler|r turns it on.")
+                :format(OFF, BLUE)
+        end,
+        body = {
+            ("The longest this addon's Lua ran in any one frame over roughly the last %d seconds. A bigger spike replaces it straight away. Blank means nothing over 1 ms."):format(FL.PEAK_HOLD),
+            "Averages hide stutter. An addon at 0.05 ms/f can still freeze the game for a tenth of a second, and this is the column where that shows.",
+            "The profiler only counts frames past 1, 5, 10, 50, 100, 500 and 1000 ms, so this is the highest of those crossed: >50 means somewhere from 50 to 100.",
         },
     },
 }
@@ -246,6 +285,10 @@ local function OnTotalEnter(row)
     else
         GameTooltip:AddDoubleLine("Allocating", "not tracked", 1, 1, 1, 1, 0.38, 0.38)
     end
+    if HAS_PEAK and FL:UsingProfiler() then
+        GameTooltip:AddDoubleLine("Worst frame, one addon",
+            t.peak > 0 and (">%d ms"):format(t.peak) or "under 1 ms", 1, 1, 1, 1, 1, 1)
+    end
 
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("This counts Lua time only. An addon that spawns hundreds of frames costs draw time that never appears in any of these columns -- watch the fps figure below alongside it.",
@@ -283,6 +326,9 @@ function UI:CreateRow(y, onEnter)
     row.cpu  = Text(row, "GameFontHighlightSmall", COL_CPU,  0, W_CPU,  "RIGHT")
     row.msf  = Text(row, "GameFontHighlightSmall", COL_MSF,  0, W_MSF,  "RIGHT")
     row.kbs  = Text(row, "GameFontHighlightSmall", COL_KBS,  0, W_KBS,  "RIGHT")
+    if HAS_PEAK then
+        row.peak = Text(row, "GameFontHighlightSmall", COL_PEAK, 0, W_PEAK, "RIGHT")
+    end
     return row
 end
 
@@ -294,6 +340,9 @@ function UI:BuildHeader()
         { COL_MSF,  W_MSF,  "ms/f",  "RIGHT" },
         { COL_KBS,  W_KBS,  "KB/s",  "RIGHT" },
     }
+    if HAS_PEAK then
+        columns[#columns + 1] = { COL_PEAK, W_PEAK, "Peak", "RIGHT" }
+    end
     for _, c in ipairs(columns) do
         local x, width, label, justify = c[1], c[2], c[3], c[4]
         Text(f, "GameFontNormalSmall", PAD + x, HEADER_Y, width, justify):SetText(label)
@@ -355,6 +404,7 @@ function UI:Init()
     self.totalRow.cpu:SetTextColor(1, 0.82, 0)
     self.totalRow.msf:SetTextColor(1, 0.82, 0)
     self.totalRow.kbs:SetTextColor(1, 0.82, 0)
+    if HAS_PEAK then self.totalRow.peak:SetTextColor(1, 0.82, 0) end
 
     local rule = f:CreateTexture(nil, "ARTWORK")
     rule:SetPoint("TOPLEFT", f, "TOPLEFT", PAD, RULE_Y)
@@ -424,7 +474,7 @@ function UI:Refresh()
     -- cleared by the loop and rewritten by the empty-state check right after.
     local placeholder
     if #rows == 0 then
-        if not FL.profilingActive and not memory then
+        if not FL:CPUOn() and not memory then
             placeholder = "|cff909090nothing to measure|r"
         else
             placeholder = format("|cff808080sampling, %.2gs window...|r", db.rate)
@@ -435,6 +485,8 @@ function UI:Refresh()
     Num(tr.cpu, total.cpu, 10, "%.1f%%")
     Num(tr.msf, total.msf, 100, "%.2f")
     Churn(tr.kbs, total.churn, memory)
+    local profiler = HAS_PEAK and FL:UsingProfiler()
+    if HAS_PEAK then Peak(tr.peak, total.peak, profiler) end
 
     for i = 1, db.rows do
         local row, r = self.lines[i], rows[i]
@@ -446,18 +498,20 @@ function UI:Refresh()
             Num(row.cpu, r.pct, 10, "%.1f%%")
             Num(row.msf, r.msf, 100, "%.2f")
             Churn(row.kbs, r.churn, memory)
+            if HAS_PEAK then Peak(row.peak, r.peak, profiler) end
         else
             Str(row.name, (i == 1 and placeholder) or "")
             Str(row.cpu, "")
             Str(row.msf, "")
             Str(row.kbs, "")
+            if HAS_PEAK then Str(row.peak, "") end
         end
     end
 
     -- fps moves every sample, so this line is the one repaint that always
     -- earns itself. Everything above it usually does not.
     local fps = floor(total.fps + 0.5)
-    if FL.profilingActive then
+    if FL:CPUOn() then
         -- The share of one 60 fps frame is a much sharper number than "3.2 ms".
         local budget = floor(total.msf / FRAME_MS * 100 + 0.5)
         if f.state.value ~= fps or f.state.budget ~= budget then
@@ -469,8 +523,8 @@ function UI:Refresh()
     elseif f.state.value ~= fps or f.state.budget ~= false then
         f.state.value, f.state.budget = fps, false
         f.state:SetText(format(
-            "|cffffffff%d fps|r   |cffff6060CPU is off.|r |cff80c0ff/free toggle|r |cff909090to enable it|r",
-            fps))
+            "|cffffffff%d fps|r   |cffff6060CPU is off.|r |cff80c0ff%s|r |cff909090to enable it|r",
+            fps, FL.hasProfiler and "/free profiler" or "/free toggle"))
     end
 
     -- Only moves when /free rate does.
