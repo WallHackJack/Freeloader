@@ -183,47 +183,47 @@ local COLUMN_HELP = {
         title = "Addon",
         body = {
             "Every addon the client has loaded, worst first, including Freeloader itself.",
-            "An addon only gets a row if at least one of its columns has a non-zero number to show. The totals row still counts everything, including the addons too quiet to list.",
+            "An addon only gets a row if at least one of its columns has a non-zero number to show. The totals row counts everything.",
         },
     },
     [COL_CPU] = {
         title = "CPU",
         status = function()
             if FL:UsingProfiler() then
-                return ("Read from the client's built-in addon profiler, which is always running and costs nothing extra. It averages over its own recent window, not the refresh rate below. %s/free profiler|r switches to script profiling.")
+                return ("From the built-in addon profiler: free, always on, averaged over its own window rather than the refresh rate below. %s/free profiler|r switches to script profiling.")
                     :format(BLUE)
             end
             if FL.profilingActive then
-                return ("Script profiling is %s. It costs a few percent CPU for as long as it runs, so %s/free toggle|r when you are done.")
+                return ("Script profiling is %s and costs a few percent CPU. %s/free toggle|r when done.")
                     :format(ON, BLUE)
             end
-            return ("Script profiling is %s, so these numbers are zero. %s/free toggle|r starts it, which needs a reload.")
+            return ("Script profiling is %s, so these read zero. %s/free toggle|r starts it (needs a reload).")
                 :format(OFF, BLUE)
         end,
         body = {
-            "Share of one CPU core spent running this addon's Lua, averaged over the sample window.",
-            "Useful for ranking, but it does not tell you whether the cost lands in one ugly spike or spread evenly. That is what ms/f is for.",
+            -- Only Peak shows spikes; ms/f is the same average as this, per frame.
+            HAS_PEAK
+                and "Share of one CPU core spent in this addon's Lua. Good for ranking. Peak shows whether it arrives as spikes."
+                or "Share of one CPU core spent in this addon's Lua. Good for ranking.",
         },
     },
     [COL_MSF] = {
         title = "ms/f -- milliseconds per frame",
         body = {
-            "How long this addon's Lua runs during an average frame.",
-            "At 60 fps the whole frame is 16.7 ms, and everything else -- the game world, your other addons, the client itself -- shares it. An addon at 2.00 here is taking 12% of that budget away from drawing.",
-            "This is the column that turns into a framerate drop.",
+            "Average time this addon's Lua runs each frame. This is the column that turns into lost fps.",
+            "A 60 fps frame is 16.7 ms, shared with the game and every other addon. 2.00 here takes 12% of it.",
         },
     },
     [COL_KBS] = {
         title = "KB/s -- allocation rate",
         status = function()
-            return ("Allocation tracking is %s.  %s/free memory|r toggles it.")
+            return ("Allocation tracking is %s. %s/free memory|r toggles it.")
                 :format(FL.db.memory and ON or OFF, BLUE)
         end,
         body = {
-            "Kilobytes of Lua memory this addon allocates per second: new tables, strings and closures.",
-            "This is not memory it is holding. An addon can sit on 20 MB at 0 KB/s and cost you nothing.",
-            "Allocation is what feeds the garbage collector, and a collection pass is a frame that does not get drawn. Sustained hundreds of KB/s from one addon usually means it rebuilds something every frame instead of reusing it.",
-            "Off by default, and shown as a dash rather than a zero when off. The scan behind it hitches, and because it is a C call the client bills that hitch to nobody -- not even to Freeloader.",
+            "Lua memory this addon allocates per second: new tables, strings, closures. Not memory it holds. 20 MB at 0 KB/s costs nothing.",
+            "Allocation feeds the garbage collector, and collection passes cost frames. Hundreds of KB/s usually means something is rebuilt every frame.",
+            "Off by default because the scan itself hitches, and that hitch shows up under no addon.",
         },
     },
     [COL_PEAK] = {
@@ -234,9 +234,9 @@ local COLUMN_HELP = {
                 :format(OFF, BLUE)
         end,
         body = {
-            ("The longest this addon's Lua ran in any one frame over roughly the last %d seconds. A bigger spike replaces it straight away. Blank means nothing over 1 ms."):format(FL.PEAK_HOLD),
-            "Averages hide stutter. An addon at 0.05 ms/f can still freeze the game for a tenth of a second, and this is the column where that shows.",
-            "The profiler only counts frames past 1, 5, 10, 50, 100, 500 and 1000 ms, so this is the highest of those crossed: >50 means somewhere from 50 to 100.",
+            ("Longest this addon's Lua ran in one frame over the last ~%d seconds. Blank means under 1 ms."):format(FL.PEAK_HOLD),
+            "Averages hide stutter. An addon at 0.05 ms/f can still freeze the game for 100 ms.",
+            "The profiler only reports which threshold was crossed, so >50 means 50 to 100 ms.",
         },
     },
 }
@@ -271,15 +271,12 @@ local function OnTotalEnter(row)
     row.highlight:Show()
 
     OpenTooltip("All addons")
-    GameTooltip:AddLine("Every loaded addon summed, including the ones too quiet to earn a row of their own.",
-        0.85, 0.85, 0.85, true)
+    GameTooltip:AddLine("Includes addons too quiet to get a row.", 0.85, 0.85, 0.85, true)
 
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine(("Over the last %.2gs"):format(t.window), 1, 0.82, 0)
     GameTooltip:AddDoubleLine("CPU", ("%.2f%% of a core"):format(t.cpu), 1, 1, 1, 1, 1, 1)
     GameTooltip:AddDoubleLine("Per frame", ("%.2f ms"):format(t.msf), 1, 1, 1, 1, 1, 1)
-    GameTooltip:AddDoubleLine("Frame budget",
-        ("%.1f%% at 60 fps"):format(t.msf / FRAME_MS * 100), 1, 1, 1, 1, 1, 1)
     if FL.db.memory then
         GameTooltip:AddDoubleLine("Allocating", ("%s/s"):format(FormatKB(t.churn)), 1, 1, 1, 1, 1, 1)
     else
@@ -291,7 +288,7 @@ local function OnTotalEnter(row)
     end
 
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine("This counts Lua time only. An addon that spawns hundreds of frames costs draw time that never appears in any of these columns -- watch the fps figure below alongside it.",
+    GameTooltip:AddLine("Lua time only. Addons that create lots of frames also cost draw time no column shows, so watch the fps below.",
         0.7, 0.7, 0.7, true)
     GameTooltip:Show()
 end
